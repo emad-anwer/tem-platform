@@ -2,7 +2,7 @@
 
 **Project:** Multi-tenant Threat Exposure Management platform (modular monolith)
 **Duration:** 8 weeks · **Team:** 4 interns · **Mentor:** Emad Anwer
-**Status:** Stage 1 complete — approved, roadmap pending
+**Status:** Roadmap approved · Week 1 planned and filed as issues · Week 2 pending
 **Last updated:** 2026-08-22
 
 This records *what was decided and why*. It is the reference for "why did we do it this way"

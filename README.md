@@ -9,6 +9,25 @@ plugged into one shared pipeline:
 targets → jobs → findings → alerts → analytics
 ```
 
+## Where the work is
+
+Everything is tracked here, in this repository:
+
+- **[Issues](https://github.com/emad-anwer/tem-platform/issues)** — one issue per task. Owner,
+  reviewer, effort, dependencies and acceptance criteria are all on the issue, along with a
+  **Search for** list of the concepts that task needs.
+- **[Milestones](https://github.com/emad-anwer/tem-platform/milestones)** — one per week. Your
+  week's scope is its milestone.
+- **Pinned keyword issue** — each week has one, listing the concepts you're expected to be able
+  to defend at Thursday's demo.
+
+Picking up a task: assign yourself, move it in progress, branch as
+`w<week>/<short-name>`, open a PR that closes the issue. [CONTRIBUTING.md](CONTRIBUTING.md) has
+the details.
+
+If a task's description is ambiguous, say so **on the issue** rather than guessing in silence —
+that's a real engineering skill, not an admission of confusion.
+
 ## Stack
 
 Python · FastAPI · PostgreSQL · Redis · ClickHouse · arq · SQLAlchemy 2.0 (async) · Alembic · Docker
