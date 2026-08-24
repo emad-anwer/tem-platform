@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     AsyncSession,
 )
+from sqlalchemy import text
 
 # Global variables to hold the database engine and session factory (lazy initialization)
 _engine: AsyncEngine | None = None
@@ -39,7 +40,7 @@ async def check_db_connection() -> bool:
     """Checks if the database connection can be established."""
     try:
         async with get_engine().connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
         print(f"Database connection check failed: {e}")
