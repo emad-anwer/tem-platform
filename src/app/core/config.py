@@ -1,7 +1,22 @@
 from functools import lru_cache
+from enum import StrEnum
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import PostgresDsn
+
+
+class Environment(StrEnum):
+    DEV = "dev"
+    STAGING = "staging"
+    PROD = "prod"
+
+
+class LogLevel(StrEnum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
 
 
 class Settings(BaseSettings):
@@ -10,11 +25,15 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "tem-platform"
-    environment: str = "dev"
+    environment: Environment = Environment.DEV
     debug: bool = False
-    log_level: str = "INFO"
+    log_level: LogLevel = LogLevel.INFO
 
     database_url: PostgresDsn
+
+    @property
+    def debug(self) -> bool:
+        return self.environment is not Environment.PROD
 
 
 @lru_cache()
