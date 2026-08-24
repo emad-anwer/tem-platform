@@ -26,7 +26,6 @@ class Settings(BaseSettings):
 
     app_name: str = "tem-platform"
     environment: Environment = Environment.DEV
-    debug: bool = False
     log_level: LogLevel = LogLevel.INFO
 
     database_url: PostgresDsn
