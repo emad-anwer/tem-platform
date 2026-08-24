@@ -1,19 +1,24 @@
 from fastapi import FastAPI
+from src.app.core.config import get_settings
+from src.app.core.db import dispose_engine, get_engine
+from app.core.health import router as health_router
 
 
 async def lifespan(app: FastAPI):
     # Perform any startup tasks here
+    print("Starting up the application...")
+    get_engine()
     yield
     # Perform any shutdown tasks here
+    await dispose_engine()
+    print("Shutting down the application...")
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(lifespan=lifespan)
+    settings = get_settings()
+    app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
-    @app.get("/")
-    async def root():
-        return {"message": "Hello from TEM Platform"}
-
+    app.include_router(health_router)
     return app
 
 
