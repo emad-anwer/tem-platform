@@ -38,11 +38,19 @@ Python · FastAPI · PostgreSQL · Redis · ClickHouse · arq · SQLAlchemy 2.0 
 
 ```bash
 cp .env.example .env
-just up
-just migrate
+just up          # start the stack in detached mode
+just migrate     # run database migrations
+```
+
+For development with hot reload:
+
+```bash
+just dev         # start with file watching (auto-reload on code changes)
 ```
 
 API on http://localhost:8000/docs
+
+Run `just` to see all available commands.
 
 ## Documentation
 

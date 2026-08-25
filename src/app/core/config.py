@@ -1,8 +1,8 @@
-from functools import lru_cache
 from enum import StrEnum
+from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import PostgresDsn
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Environment(StrEnum):
@@ -29,12 +29,19 @@ class Settings(BaseSettings):
     log_level: LogLevel = LogLevel.INFO
 
     database_url: PostgresDsn
+    redis_url: str = "redis://localhost:6379/0"
+
+    postgres_user: str = "tem_user"
+    postgres_password: str = ""
+    postgres_db: str = "tem_platform"
+    db_port: int = 5432
+    redis_password: str = ""
 
     @property
     def debug(self) -> bool:
         return self.environment is not Environment.PROD
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

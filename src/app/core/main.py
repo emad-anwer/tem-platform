@@ -1,8 +1,9 @@
 import logging
 
 from fastapi import FastAPI
+
 from app.core.config import get_settings
-from app.core.db import dispose_engine, get_engine
+from app.core.db import dispose_engine, wait_for_db
 from app.core.health import router as health_router
 from app.core.logging import setup_logging
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Perform any startup tasks here
     logger.info("Starting up the application...")
-    get_engine()
+    await wait_for_db()
     yield
     # Perform any shutdown tasks here
     await dispose_engine()
