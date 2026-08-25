@@ -17,6 +17,13 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
+FROM builder AS dev
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable
+
 FROM python:3.11-slim AS runtime
 
 RUN groupadd --gid 1000 app \

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import LogLevel, get_settings
+from app.core.config import get_settings
 
 # Global variables to hold the database engine and session factory (lazy initialization)
 _engine: AsyncEngine | None = None
@@ -33,7 +33,7 @@ def get_engine() -> AsyncEngine:
         _engine = create_async_engine(
             str(settings.database_url),
             pool_pre_ping=True,
-            echo=settings.log_level == LogLevel.DEBUG,
+            echo=settings.log_level == "DEBUG",
         )
     return _engine
 

@@ -36,9 +36,13 @@ migrate:
 migration msg:
     docker compose exec app alembic revision --autogenerate -m "{{msg}}"
 
-# run tests inside the app container
+# run tests inside the app container (unit + e2e)
 test:
     docker compose exec app pytest
+
+# run unit tests only, skipping e2e (safe outside Docker too)
+test-unit:
+    docker compose exec app pytest -m "not e2e"
 
 # run linter and format checker
 lint:
