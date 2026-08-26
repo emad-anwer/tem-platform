@@ -55,4 +55,4 @@ def test_readyz_is_503_when_db_is_down(
     response = client.get("/readyz")
 
     assert response.status_code == 503
-    assert response.json()["status"] == "unavailable"
+    assert response.json() == {"status": "unavailable", "message": "Database connection failed"}

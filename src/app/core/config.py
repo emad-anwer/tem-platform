@@ -1,8 +1,8 @@
-from functools import lru_cache
 from enum import StrEnum
+from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import PostgresDsn
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Environment(StrEnum):
@@ -35,6 +35,6 @@ class Settings(BaseSettings):
         return self.environment is not Environment.PROD
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

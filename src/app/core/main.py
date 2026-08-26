@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import FastAPI
+
 from app.core.config import get_settings
 from app.core.db import dispose_engine, get_engine
 from app.core.health import router as health_router

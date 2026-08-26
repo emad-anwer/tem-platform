@@ -1,15 +1,16 @@
-import time
 import logging
-
-from app.core.config import LogLevel, get_settings
+import time
 from collections.abc import AsyncGenerator
+
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
-    create_async_engine,
-    async_sessionmaker,
     AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
-from sqlalchemy import text
+
+from app.core.config import LogLevel, get_settings
 
 # Global variables to hold the database engine and session factory (lazy initialization)
 _engine: AsyncEngine | None = None
@@ -58,8 +59,8 @@ async def check_db_connection() -> bool:
             await conn.execute(text("SELECT 1"))
         healthy = True
 
-    except Exception as e:
-        logger.exception(f"Database connection check failed")
+    except Exception:
+        logger.exception("Database connection check failed")
         healthy = False
 
     _last_check = (now, healthy)
