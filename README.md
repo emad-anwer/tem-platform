@@ -34,13 +34,16 @@ Python · FastAPI · PostgreSQL · Redis · ClickHouse · arq · SQLAlchemy 2.0 
 
 ## Getting started
 
-> Not yet — week 1 builds this. When `W1-03` and `W1-13` are merged, this section becomes real.
-
 ```bash
 cp .env.example .env
 just up          # start the stack in detached mode
 just migrate     # run database migrations
 ```
+
+The initial migration is an empty baseline because application models are added in later
+work. After changing models, create a revision with `just migration "description"`, inspect
+the generated operations, and run `just migrate`. To roll back the latest revision, run
+`just downgrade`; a specific Alembic target can be passed with `just downgrade <revision>`.
 
 For development with hot reload:
 

@@ -32,6 +32,10 @@ logs-app:
 migrate:
     docker compose exec app alembic upgrade head
 
+# roll back database migrations (defaults to the previous revision)
+downgrade revision="-1":
+    docker compose exec app alembic downgrade {{revision}}
+
 # create a new migration
 migration msg:
     docker compose exec app alembic revision --autogenerate -m "{{msg}}"
