@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 set dotenv-load
 
 # list available recipes
@@ -31,6 +32,10 @@ logs-app:
 # run database migrations
 migrate:
     docker compose exec app alembic upgrade head
+
+# roll back database migrations (defaults to the previous revision)
+downgrade revision="-1":
+    docker compose exec app alembic downgrade {{revision}}
 
 # create a new migration
 migration msg:
@@ -71,3 +76,10 @@ health:
     @echo "=== App ===" && curl -sf http://localhost:8000/healthz || echo "NOT HEALTHY"
     @echo "\n=== Postgres ===" && docker compose exec postgres pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} || echo "NOT HEALTHY"
     @echo "\n=== Redis ===" && docker compose exec -e REDISCLI_AUTH="${REDIS_PASSWORD}" redis redis-cli ping || echo "NOT HEALTHY"
+=======
+migrate:
+    docker compose exec api alembic upgrade head
+
+migration-revision message:
+    docker compose exec api alembic revision --autogenerate -m "{{message}}"
+>>>>>>> Stashed changes
