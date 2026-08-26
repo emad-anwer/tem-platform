@@ -12,7 +12,7 @@ def setup_logging(level: str) -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=True),
-            structlog.dev.JsonRenderer(),
+            structlog.processors.JSONRenderer(indent=2, sort_keys=True),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
             logging.getLevelNamesMapping()[level.upper()]
