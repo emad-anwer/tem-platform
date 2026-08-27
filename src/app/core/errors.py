@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -11,6 +12,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 logger = logging.getLogger(__name__)
 
 PROBLEM_BASE_URL = "https://tem-platform.dev/problems"
+
+# Whitelist safe characters for request IDs (alphanumeric, hyphens, underscores, dots; max 64 chars)
+# Prevents CRLF header injection and log forging (OWASP A03)
+REQUEST_ID_REGEX = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
+MAX_VALIDATION_ERRORS = 50
 
 PROBLEM_REGISTRY: dict[int, tuple[str, str]] = {
     status.HTTP_400_BAD_REQUEST: ("bad-request", "Bad Request"),
@@ -25,37 +31,50 @@ PROBLEM_REGISTRY: dict[int, tuple[str, str]] = {
 }
 
 
+def _is_safe_request_id(value: str | None) -> bool:
+    """Validate request ID against a strict whitelist to prevent header/log injection."""
+    if not value or not isinstance(value, str):
+        return False
+    return bool(REQUEST_ID_REGEX.fullmatch(value.strip()))
+
+
 def _get_request_id(request: Request) -> str:
-    """Resolve request ID from structlog contextvars, request state, header, or generate a fallback."""
+    """Resolve and sanitize request ID from structlog, request state, header, or generate a cryptographically strong UUID."""
+    # 1. Structlog contextvars
     try:
         import structlog
 
         ctx = structlog.contextvars.get_contextvars()
-        if "request_id" in ctx and ctx["request_id"]:
-            return str(ctx["request_id"])
+        req_id = str(ctx.get("request_id", "")).strip()
+        if _is_safe_request_id(req_id):
+            return req_id
     except Exception:
         pass
 
+    # 2. Request state
     if hasattr(request, "state") and hasattr(request.state, "request_id"):
-        req_id = getattr(request.state, "request_id")
-        if req_id:
-            return str(req_id)
+        req_id = str(getattr(request.state, "request_id", "")).strip()
+        if _is_safe_request_id(req_id):
+            return req_id
 
+    # 3. Client X-Request-ID header (sanitized against injection)
     header_id = request.headers.get("x-request-id")
-    if header_id:
+    if header_id and _is_safe_request_id(header_id):
         return header_id.strip()
 
+    # 4. Secure fallback UUID v4
     return str(uuid.uuid4())
 
 
 def _format_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Format Pydantic / FastAPI validation error items into clean field/message objects."""
+    """Format Pydantic / FastAPI validation error items into clean, bounded field/message objects."""
     formatted: list[dict[str, str]] = []
-    for err in errors:
+    # Cap maximum error entries to prevent memory exhaustion DoS (OWASP A04 / A10)
+    for err in errors[:MAX_VALIDATION_ERRORS]:
         loc = err.get("loc", ())
         parts = [str(part) for part in loc if part not in ("body",)]
         field = ".".join(parts) if parts else "request"
-        msg = err.get("msg", "Invalid value")
+        msg = str(err.get("msg", "Invalid value"))
         formatted.append({"field": field, "message": msg})
     return formatted
 
@@ -70,20 +89,23 @@ def create_problem_response(
     errors: list[dict[str, Any]] | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
-    """Construct an RFC 9457 compliant problem details JSON response."""
+    """Construct an RFC 9457 compliant problem details JSON response with security headers."""
+    # Ensure safe request ID in response headers
+    safe_req_id = request_id if _is_safe_request_id(request_id) else str(uuid.uuid4())
+
     payload: dict[str, Any] = {
         "type": f"{PROBLEM_BASE_URL}/{slug}",
         "title": title,
         "status": status_code,
         "detail": detail,
         "instance": instance,
-        "request_id": request_id,
+        "request_id": safe_req_id,
     }
     if errors is not None:
         payload["errors"] = errors
 
     response_headers = dict(headers) if headers else {}
-    response_headers["x-request-id"] = request_id
+    response_headers["x-request-id"] = safe_req_id
 
     return JSONResponse(
         status_code=status_code,
@@ -209,7 +231,7 @@ class InternalError(AppError):
     title = "Internal Server Error"
 
     def __init__(
-        self, detail: str = "Internal server error.", **kwargs: Any
+        self, detail: str = "An unexpected server error occurred.", **kwargs: Any
     ) -> None:
         super().__init__(detail, **kwargs)
 
@@ -240,10 +262,16 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         request.url.path,
         req_id,
     )
+    # Mask 5xx internal errors to prevent information leakage (OWASP A05)
+    detail = (
+        "An unexpected server error occurred."
+        if exc.status_code >= 500
+        else exc.detail
+    )
     return create_problem_response(
         status_code=exc.status_code,
         title=exc.title,
-        detail=exc.detail,
+        detail=detail,
         instance=request.url.path,
         slug=exc.slug,
         request_id=req_id,
@@ -274,7 +302,11 @@ async def http_exception_handler(
     slug, default_title = PROBLEM_REGISTRY.get(
         exc.status_code, ("internal-error", "HTTP Error")
     )
-    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    # Never leak internal 5xx details via Starlette HTTPException (OWASP A05)
+    if exc.status_code >= 500:
+        detail = "An unexpected server error occurred."
+    else:
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
     headers = dict(exc.headers) if exc.headers else {}
 
     return create_problem_response(
@@ -298,6 +330,7 @@ async def unhandled_exception_handler(
         req_id,
         exc,
     )
+    # Fail-safe: Always return generic safe message on 500 errors (OWASP A05)
     return create_problem_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         title="Internal Server Error",

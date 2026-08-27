@@ -207,3 +207,33 @@ def test_x_request_id_forwarding(client: TestClient) -> None:
     assert response.status_code == 404
     assert response.headers["x-request-id"] == custom_id
     assert response.json()["request_id"] == custom_id
+
+
+def test_malicious_crlf_x_request_id_is_sanitized(client: TestClient) -> None:
+    # Attempt CRLF / Header Injection (OWASP A03)
+    malicious_id = "safe-id\r\nSet-Cookie: session=evil\r\nInjected-Header: true"
+    response = client.get("/test-errors/not-found", headers={"X-Request-ID": malicious_id})
+
+    assert response.status_code == 404
+    # Must reject malicious input and substitute a valid UUID
+    assert "Set-Cookie" not in response.headers
+    assert "Injected-Header" not in response.headers
+    assert response.headers["x-request-id"] != malicious_id
+    assert len(response.headers["x-request-id"]) > 10
+
+
+def test_http_exception_500_masks_internal_details(client: TestClient) -> None:
+    # Verify that even explicit 500 HTTPException does not leak details (OWASP A05)
+    app = create_test_app()
+
+    @app.get("/test-errors/explicit-http-500")
+    async def trigger_http_500():
+        raise HTTPException(status_code=500, detail="Database credentials invalid: postgres://user:secret@db:5432")
+
+    test_client = TestClient(app, raise_server_exceptions=False)
+    response = test_client.get("/test-errors/explicit-http-500")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "An unexpected server error occurred."
+    assert "secret" not in response.text
+    assert "postgres://" not in response.text
