@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
+from app.core.errors import register_error_handlers
 from app.core.health import router as health_router
 from app.core.logging import setup_logging
 from app.core.redis import dispose_redis, wait_for_redis
@@ -27,6 +28,9 @@ def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings.log_level)
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+
+    # Register RFC 9457 exception handlers
+    register_error_handlers(app)
 
     app.include_router(health_router)
     return app
