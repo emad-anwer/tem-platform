@@ -5,3 +5,4 @@ __pycache__/
 .ruff_cache/
 strix/
 strix_runs/
+instructions.md
