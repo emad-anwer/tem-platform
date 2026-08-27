@@ -1,15 +1,18 @@
-import time
+import asyncio
 import logging
-
-from app.core.config import LogLevel, get_settings
+import time
 from collections.abc import AsyncGenerator
+
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
-    create_async_engine,
-    async_sessionmaker,
     AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
-from sqlalchemy import text
+
+from app.core.config import get_settings
 
 # Global variables to hold the database engine and session factory (lazy initialization)
 _engine: AsyncEngine | None = None
@@ -19,6 +22,9 @@ _last_check: tuple[float, bool] | None = None
 
 logger = logging.getLogger(__name__)
 
+_MAX_RETRIES = 3
+_RETRY_DELAY_SECONDS = 2
+
 
 def get_engine() -> AsyncEngine:
     global _engine
@@ -27,9 +33,32 @@ def get_engine() -> AsyncEngine:
         _engine = create_async_engine(
             str(settings.database_url),
             pool_pre_ping=True,
-            echo=settings.log_level == LogLevel.DEBUG,
+            echo=settings.log_level == "DEBUG",
         )
     return _engine
+
+
+async def wait_for_db() -> None:
+    """Wait for the database to become available on startup."""
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            async with get_engine().connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            logger.info("Database connection established")
+            return
+        except SQLAlchemyError:
+            if attempt == _MAX_RETRIES:
+                logger.error(
+                    "Failed to connect to database after %d attempts", _MAX_RETRIES
+                )
+                raise
+            logger.warning(
+                "Database not ready (attempt %d/%d), retrying in %ds",
+                attempt,
+                _MAX_RETRIES,
+                _RETRY_DELAY_SECONDS,
+            )
+            await asyncio.sleep(_RETRY_DELAY_SECONDS)
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
@@ -58,8 +87,8 @@ async def check_db_connection() -> bool:
             await conn.execute(text("SELECT 1"))
         healthy = True
 
-    except Exception as e:
-        logger.exception(f"Database connection check failed")
+    except SQLAlchemyError:
+        logger.error("Database connection check failed")
         healthy = False
 
     _last_check = (now, healthy)
