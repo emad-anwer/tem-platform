@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,62 @@ PROBLEM_REGISTRY: dict[int, tuple[str, str]] = {
     status.HTTP_429_TOO_MANY_REQUESTS: ("rate-limited", "Too Many Requests"),
     status.HTTP_500_INTERNAL_SERVER_ERROR: ("internal-error", "Internal Server Error"),
     status.HTTP_503_SERVICE_UNAVAILABLE: ("service-unavailable", "Service Unavailable"),
+}
+
+
+# ----------------------------------------------------------------------
+# Pydantic Schemas for RFC 9457 & OpenAPI
+# ----------------------------------------------------------------------
+
+
+class ValidationErrorItem(BaseModel):
+    """Schema representing an individual field validation error."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    field: str = Field(..., description="Target field that failed validation")
+    message: str = Field(..., description="Validation failure explanation")
+
+
+class ProblemDetails(BaseModel):
+    """RFC 9457 Problem Details schema for API error responses."""
+
+    model_config = ConfigDict(
+        extra="ignore",
+        json_schema_extra={
+            "example": {
+                "type": "https://tem-platform.dev/problems/not-found",
+                "title": "Not Found",
+                "status": 404,
+                "detail": "Resource not found.",
+                "instance": "/api/v1/tenants/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "request_id": "c1f76d90-5b91-4c12-9c3f-8461b2791e80",
+            }
+        },
+    )
+
+    type: str = Field(..., description="URI identifying the problem type")
+    title: str = Field(..., description="Short, human-readable summary of problem")
+    status: int = Field(..., description="HTTP status code")
+    detail: str = Field(..., description="Explanation specific to this occurrence")
+    instance: str = Field(..., description="Request path that triggered the error")
+    request_id: str = Field(..., description="Unique request tracing identifier")
+    errors: list[ValidationErrorItem] | None = Field(
+        default=None,
+        description="Optional list of field-level validation errors",
+    )
+
+
+COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ProblemDetails, "description": "Bad Request"},
+    401: {"model": ProblemDetails, "description": "Unauthorized"},
+    403: {"model": ProblemDetails, "description": "Forbidden"},
+    404: {"model": ProblemDetails, "description": "Not Found"},
+    409: {"model": ProblemDetails, "description": "Conflict"},
+    422: {"model": ProblemDetails, "description": "Validation Error"},
+    429: {"model": ProblemDetails, "description": "Rate Limited"},
+    500: {"model": ProblemDetails, "description": "Internal Server Error"},
+    503: {"model": ProblemDetails, "description": "Service Unavailable"},
 }
 
 
@@ -66,16 +122,18 @@ def _get_request_id(request: Request) -> str:
     return str(uuid.uuid4())
 
 
-def _format_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Format Pydantic / FastAPI validation error items into clean, bounded field/message objects."""
-    formatted: list[dict[str, str]] = []
+def _format_validation_errors(
+    errors: list[dict[str, Any]],
+) -> list[ValidationErrorItem]:
+    """Format Pydantic / FastAPI validation error items into clean, bounded ValidationErrorItem models."""
+    formatted: list[ValidationErrorItem] = []
     # Cap maximum error entries to prevent memory exhaustion DoS (OWASP A04 / A10)
     for err in errors[:MAX_VALIDATION_ERRORS]:
         loc = err.get("loc", ())
         parts = [str(part) for part in loc if part not in ("body",)]
         field = ".".join(parts) if parts else "request"
         msg = str(err.get("msg", "Invalid value"))
-        formatted.append({"field": field, "message": msg})
+        formatted.append(ValidationErrorItem(field=field, message=msg))
     return formatted
 
 
@@ -86,30 +144,35 @@ def create_problem_response(
     instance: str,
     slug: str,
     request_id: str,
-    errors: list[dict[str, Any]] | None = None,
+    errors: list[ValidationErrorItem] | list[dict[str, Any]] | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
-    """Construct an RFC 9457 compliant problem details JSON response with security headers."""
-    # Ensure safe request ID in response headers
+    """Construct an RFC 9457 compliant problem details JSON response using Pydantic validation."""
     safe_req_id = request_id if _is_safe_request_id(request_id) else str(uuid.uuid4())
 
-    payload: dict[str, Any] = {
-        "type": f"{PROBLEM_BASE_URL}/{slug}",
-        "title": title,
-        "status": status_code,
-        "detail": detail,
-        "instance": instance,
-        "request_id": safe_req_id,
-    }
+    parsed_errors: list[ValidationErrorItem] | None = None
     if errors is not None:
-        payload["errors"] = errors
+        parsed_errors = [
+            item if isinstance(item, ValidationErrorItem) else ValidationErrorItem(**item)
+            for item in errors
+        ]
+
+    problem = ProblemDetails(
+        type=f"{PROBLEM_BASE_URL}/{slug}",
+        title=title,
+        status=status_code,
+        detail=detail,
+        instance=instance,
+        request_id=safe_req_id,
+        errors=parsed_errors,
+    )
 
     response_headers = dict(headers) if headers else {}
     response_headers["x-request-id"] = safe_req_id
 
     return JSONResponse(
         status_code=status_code,
-        content=payload,
+        content=problem.model_dump(mode="json", exclude_none=True),
         media_type="application/problem+json",
         headers=response_headers,
     )
