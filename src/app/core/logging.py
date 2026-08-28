@@ -15,10 +15,16 @@ SENSITIVE_KEYS = {
 REDACTED = "***REDACTED***"
 
 def redact_processor(logger, method_name, event_dict):
-    for key in list(event_dict.keys()):
-        if key.lower() in SENSITIVE_KEYS:
-            event_dict[key] = REDACTED
-    return event_dict
+    def redact(data):
+        if isinstance(data, dict):
+            return {
+                k: (REDACTED if k.lower() in SENSITIVE_KEYS else redact(v))
+                for k, v in data.items()
+            }
+        elif isinstance(data, list):
+            return [redact(item) for item in data]
+        return data
+    return redact(event_dict)
 
 def setup_logging(level: str) -> None:
     logging.basicConfig(level=level, format="%(message)s")
@@ -29,9 +35,9 @@ def setup_logging(level: str) -> None:
             structlog.processors.add_log_level,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,   
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=True),
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
             redact_processor,
-            structlog.processors.JSONRenderer(indent=2, sort_keys=True),
+            structlog.processors.JSONRenderer(sort_keys=True),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
             logging.getLevelNamesMapping()[level.upper()]

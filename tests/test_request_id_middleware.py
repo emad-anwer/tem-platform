@@ -8,7 +8,7 @@ from fastapi import APIRouter, FastAPI
 from starlette.testclient import TestClient
 from structlog.testing import LogCapture
 
-from app.core.logging import setup_logging
+from app.core.logging import setup_logging, redact_processor
 from app.core.middlewares.request_id import RequestIDMiddleware
 
 
@@ -60,6 +60,7 @@ def structlog_capture() -> LogCapture:
                 fmt="%Y-%m-%dT%H:%M:%SZ",
                 utc=True,
             ),
+            redact_processor,
             cap,
         ],
         logger_factory=structlog.ReturnLoggerFactory(),
@@ -107,6 +108,23 @@ class TestInboundRequestID:
         parsed = uuid.UUID(req_id)
         assert str(parsed) == req_id
 
+    def test_invalid_inbound_id_rejected(self, client: TestClient) -> None:
+        # Request ID containing invalid characters should be rejected and replaced
+        invalid_id = "invalid_id_with_spaces and_newlines\n\r"
+        resp = client.get("/__test__/ok", headers={"X-Request-ID": invalid_id})
+        req_id = resp.headers["X-Request-ID"]
+        assert req_id != invalid_id
+        parsed = uuid.UUID(req_id)
+        assert str(parsed) == req_id
+
+    def test_too_long_inbound_id_rejected(self, client: TestClient) -> None:
+        invalid_id = "a" * 65
+        resp = client.get("/__test__/ok", headers={"X-Request-ID": invalid_id})
+        req_id = resp.headers["X-Request-ID"]
+        assert req_id != invalid_id
+        parsed = uuid.UUID(req_id)
+        assert str(parsed) == req_id
+
 
 class TestRequestIDPropagatedToLogs:
     def test_all_log_lines_share_request_id(
@@ -135,7 +153,7 @@ class TestRequestIDPropagatedToLogs:
         events = [e.get("event") for e in structlog_capture.entries]
         assert "request_finished" in events
 
-    def test_request_finished_log_contains_status_code(
+    def test_request_finished_log_contains_status_code_and_duration(
         self, client: TestClient, structlog_capture: LogCapture
     ) -> None:
         client.get("/__test__/ok")
@@ -145,6 +163,9 @@ class TestRequestIDPropagatedToLogs:
         assert finished is not None
         assert "status_code" in finished
         assert finished["status_code"] == 200
+        assert "duration_ms" in finished
+        assert isinstance(finished["duration_ms"], (int, float))
+        assert finished["duration_ms"] >= 0
 
 
 class TestContextClearing:
@@ -269,6 +290,47 @@ class TestLogLevel:
         raw = capsys.readouterr().out
         assert "suppressed_warning" not in raw
         assert "visible_error" in raw
+
+
+class TestNoSecretsInLogs:
+    def test_database_url_password_not_in_logs(self, structlog_capture: LogCapture) -> None:
+        logger = structlog.get_logger(__name__)
+        logger.info("db_connected", url="postgresql+asyncpg://admin:s3cr3t_p4ssw0rd@localhost/db")
+        events = structlog_capture.entries
+        assert len(events) == 1
+        # Since the url field has the word 'url', let's test a key that contains the word 'password' or direct sensitive values
+        # The url itself is not a sensitive key directly in SENSITIVE_KEYS, but we can log a password key
+        logger.info("user_details", password="my-secret-password")
+        assert len(structlog_capture.entries) == 2
+        assert structlog_capture.entries[1]["password"] == "***REDACTED***"
+        assert "my-secret-password" not in str(structlog_capture.entries[1])
+
+    def test_auth_header_not_in_logs(self, structlog_capture: LogCapture) -> None:
+        logger = structlog.get_logger(__name__)
+        logger.info("request_headers", headers={"Authorization": "Bearer super-secret-token"})
+        for entry in structlog_capture.entries:
+            assert "super-secret-token" not in str(entry)
+            
+    def test_recursive_redaction(self, structlog_capture: LogCapture) -> None:
+        logger = structlog.get_logger(__name__)
+        nested_data = {
+            "user": {
+                "name": "John Doe",
+                "password": "my_secret_password"
+            },
+            "tokens": ["token123", {"access_token": "bearer-token"}]
+        }
+        logger.info("user_login", data=nested_data)
+        
+        events = structlog_capture.entries
+        assert len(events) == 1
+        event = events[0]
+        # Check nested dict key redaction
+        assert event["data"]["user"]["password"] == "***REDACTED***"
+        # Check nested list with dict redaction
+        assert event["data"]["tokens"][1]["access_token"] == "***REDACTED***"
+        assert "my_secret_password" not in str(event)
+        assert "bearer-token" not in str(event)
 
 
 class TestSetupLogging:

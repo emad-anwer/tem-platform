@@ -56,10 +56,14 @@ The `RequestIDMiddleware` manages context variables. It binds the `request_id` w
 
 If an exception occurs and propagates to FastAPI, our custom exception handlers (in `src/app/core/errors.py`) will automatically include the `request_id` in the JSON response body. This allows clients to report the `request_id` to support for easy tracing.
 
-Example 500 Response:
+Example 500 Response (RFC 9457 compliant):
 ```json
 {
-  "detail": "Internal Server Error",
+  "type": "https://tem-platform.dev/problems/internal-error",
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "An unexpected server error occurred.",
+  "instance": "/api/v1/some-endpoint",
   "request_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef"
 }
 ```
