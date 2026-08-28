@@ -28,6 +28,18 @@ logs:
 logs-app:
     docker compose logs -f app
 
+# start the target lab services (4 scan targets)
+lab-up:
+    docker compose --profile lab up -d
+
+# stop the target lab services
+lab-down:
+    docker compose --profile lab down
+
+# follow logs from the target lab services
+lab-logs:
+    docker compose --profile lab logs -f
+
 # run database migrations
 migrate:
     docker compose exec app alembic upgrade head
@@ -75,3 +87,4 @@ health:
     @echo "=== App ===" && curl -sf http://localhost:8000/healthz || echo "NOT HEALTHY"
     @echo "\n=== Postgres ===" && docker compose exec postgres pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} || echo "NOT HEALTHY"
     @echo "\n=== Redis ===" && docker compose exec -e REDISCLI_AUTH="${REDIS_PASSWORD}" redis redis-cli ping || echo "NOT HEALTHY"
+
