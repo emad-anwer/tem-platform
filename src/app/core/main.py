@@ -1,4 +1,4 @@
-import logging
+import structlog
 
 from fastapi import FastAPI
 
@@ -6,9 +6,10 @@ from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
 from app.core.health import router as health_router
 from app.core.logging import setup_logging
+from app.core.middlewares.request_id import RequestIDMiddleware
 from app.core.redis import dispose_redis, wait_for_redis
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def lifespan(app: FastAPI):
@@ -28,6 +29,10 @@ def create_app() -> FastAPI:
     setup_logging(settings.log_level)
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
+    # Middlewares
+    app.add_middleware(RequestIDMiddleware)
+
+    # Routers
     app.include_router(health_router)
     return app
 
