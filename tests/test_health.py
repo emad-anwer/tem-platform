@@ -61,7 +61,12 @@ def test_readyz_is_503_when_db_is_down(
     response = client.get("/readyz")
 
     assert response.status_code == 503
-    assert response.json()["status"] == "unavailable"
+    assert response.json() == {
+        "status": "unavailable",
+        "message": "Service dependencies unhealthy",
+        "db": "unavailable",
+        "redis": "ok"
+    }
 
 
 def test_readyz_is_503_when_redis_is_down(
@@ -79,4 +84,9 @@ def test_readyz_is_503_when_redis_is_down(
     response = client.get("/readyz")
 
     assert response.status_code == 503
-    assert response.json() == {"status": "unavailable", "message": "Database connection failed"}
+    assert response.json() == {
+        "status": "unavailable",
+        "message": "Service dependencies unhealthy",
+        "db": "ok",
+        "redis": "unavailable"
+    }
