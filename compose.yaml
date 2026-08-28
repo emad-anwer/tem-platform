@@ -64,6 +64,60 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # ----------------------------------------------------------------------
+  # Target Lab Services (Isolated under the 'lab' profile)
+  # Activated via: `just lab-up` (docker compose --profile lab up -d)
+  # ----------------------------------------------------------------------
+
+  lab-nginx:
+    image: nginx:1.25.4-alpine
+    profiles: ["lab"]
+    ports:
+      - "8081:80"
+    volumes:
+      - ./lab/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./lab/nginx/html:/usr/share/nginx/html:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  lab-apache:
+    image: httpd:2.4.52-alpine
+    profiles: ["lab"]
+    ports:
+      - "8082:80"
+    volumes:
+      - ./lab/apache/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+      - ./lab/apache/html:/usr/local/apache2/htdocs:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  lab-nonstandard:
+    image: nginx:1.25.4-alpine
+    profiles: ["lab"]
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./lab/nonstandard/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./lab/nonstandard/html:/usr/share/nginx/html:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  lab-tls-san:
+    image: nginx:1.25.4-alpine
+    profiles: ["lab"]
+    ports:
+      - "8443:443"
+    volumes:
+      - ./lab/tls/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./lab/tls/html:/usr/share/nginx/html:ro
+      - ./lab/tls/certs:/etc/nginx/certs:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   postgres_data:
   redis_data:
