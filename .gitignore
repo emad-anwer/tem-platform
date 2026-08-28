@@ -3,3 +3,6 @@ __pycache__/
 *.py[cod]
 .env
 .ruff_cache/
+strix/
+strix_runs/
+instructions.md
