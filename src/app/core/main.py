@@ -7,13 +7,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
-from app.core.errors import (
-    ConflictError,
-    NotFoundError,
-    ProblemDetailError,
-    ValidationError,
-    build_problem_details,
-)
+from app.core.errors import register_error_handlers
 from app.core.health import router as health_router
 from app.core.logging import setup_logging
 from app.core.redis import dispose_redis, wait_for_redis
@@ -73,92 +67,8 @@ def create_app() -> FastAPI:
     setup_logging(settings.log_level)
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
-    @app.exception_handler(ProblemDetailError)
-    async def problem_detail_handler(request: Request, exc: ProblemDetailError):
-        return _problem_response(
-            request,
-            exc.status_code,
-            exc.title,
-            exc.detail,
-            exc.problem_type,
-            errors=exc.errors,
-        )
-
-    @app.exception_handler(ValidationError)
-    async def validation_handler(request: Request, exc: ValidationError):
-        return _problem_response(
-            request,
-            exc.status_code,
-            exc.title,
-            exc.detail,
-            exc.problem_type,
-            errors=exc.errors,
-        )
-
-    @app.exception_handler(RequestValidationError)
-    async def request_validation_handler(request: Request, exc: RequestValidationError):
-        errors: list[dict[str, str]] = []
-        for error in exc.errors():
-            location = ".".join(str(part) for part in error.get("loc", ()))
-            message = error.get("msg", "Invalid value")
-            errors.append({"field": location or "request", "message": message})
-
-        return _problem_response(
-            request,
-            422,
-            "Validation Error",
-            "One or more fields failed validation.",
-            "validation-error",
-            errors=errors,
-        )
-
-    @app.exception_handler(NotFoundError)
-    async def not_found_handler(request: Request, exc: NotFoundError):
-        return _problem_response(
-            request,
-            exc.status_code,
-            exc.title,
-            exc.detail,
-            exc.problem_type,
-            errors=exc.errors,
-        )
-
-    @app.exception_handler(ConflictError)
-    async def conflict_handler(request: Request, exc: ConflictError):
-        return _problem_response(
-            request,
-            exc.status_code,
-            exc.title,
-            exc.detail,
-            exc.problem_type,
-            errors=exc.errors,
-        )
-
-    @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-        if exc.status_code == 404:
-            return _problem_response(
-                request,
-                404,
-                "Not Found",
-                "The requested resource was not found.",
-                "not-found",
-            )
-        if exc.status_code == 405:
-            return _problem_response(
-                request,
-                405,
-                "Method Not Allowed",
-                "The requested method is not allowed for this resource.",
-                "bad-request",
-            )
-        return _problem_response(
-            request,
-            exc.status_code,
-            exc.__class__.__name__,
-            str(exc.detail),
-            "bad-request",
-        )
+    # Register RFC 9457 exception handlers
+    register_error_handlers(app)
 
     app.include_router(health_router)
     app.include_router(tenant_router)
