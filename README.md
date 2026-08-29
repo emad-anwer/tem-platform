@@ -96,7 +96,8 @@ curl http://localhost:8000/readyz      # → {"status": "ok"} (checks Postgres +
 just dev         # uses `docker compose watch` — syncs code changes, rebuilds on pyproject.toml changes
 ```
 
-> **Note:** `just dev` runs in the foreground. Use `just up` if you prefer detached mode.
+>[!Note]
+`just dev` runs in the foreground. Use `just up` if you prefer detached mode.
 
 ### Useful commands
 
@@ -230,7 +231,8 @@ just test-unit
 
 This runs `pytest -m "not e2e"` — skips tests that need real database/Redis connections. Safe to run outside Docker too if you have a local Python environment.
 
-> **Note:** even unit tests require `DATABASE_URL` to be set (it's referenced at import time by `config.py`). The test files set a dummy fallback via `os.environ.setdefault(...)` so they don't fail outside Docker.
+>[!Note]
+even unit tests require `DATABASE_URL` to be set (it's referenced at import time by `config.py`). The test files set a dummy fallback via `os.environ.setdefault(...)` so they don't fail outside Docker.
 
 ### Run a specific test file or test
 
@@ -272,7 +274,8 @@ just fix
 
 Runs `ruff check --fix .` and `ruff format .`.
 
-> **Note:** `just lint` and `just fix` run on your **host machine** (not inside Docker), so you need `ruff` installed locally. If you set up your local env with `uv sync`, it's included in the dev dependencies.
+> [!Note]
+`just lint` and `just fix` run on your **host machine** (not inside Docker), so you need `ruff` installed locally. If you set up your local env with `uv sync`, it's included in the dev dependencies.
 
 ---
 
