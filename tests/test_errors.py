@@ -4,21 +4,19 @@ os.environ.setdefault(
     "DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/db"
 )
 
+import pytest
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
-import pytest
 
 from app.core.errors import (
     BadRequestError,
     ConflictError,
-    ForbiddenError,
     NotFoundError,
     RateLimitedError,
     ServiceUnavailableError,
     UnauthorizedError,
     ValidationError,
-    register_error_handlers,
 )
 from app.core.main import create_app
 
@@ -34,7 +32,9 @@ def create_test_app() -> FastAPI:
 
     @router.get("/not-found")
     async def trigger_not_found():
-        raise NotFoundError("Tenant '3fa85f64-5717-4562-b3fc-2c963f66afa6' does not exist.")
+        raise NotFoundError(
+            "Tenant '3fa85f64-5717-4562-b3fc-2c963f66afa6' does not exist."
+        )
 
     @router.get("/conflict")
     async def trigger_conflict():
@@ -53,7 +53,9 @@ def create_test_app() -> FastAPI:
 
     @router.get("/unhandled-500")
     async def trigger_unhandled():
-        raise RuntimeError("Database connection pool crashed! Secret SQL: SELECT * FROM secrets;")
+        raise RuntimeError(
+            "Database connection pool crashed! Secret SQL: SELECT * FROM secrets;"
+        )
 
     @router.get("/http-exception-403")
     async def trigger_http_forbidden():
@@ -96,7 +98,10 @@ def test_not_found_error_returns_rfc9457(client: TestClient) -> None:
     assert body["type"] == "https://tem-platform.dev/problems/not-found"
     assert body["title"] == "Not Found"
     assert body["status"] == 404
-    assert body["detail"] == "Tenant '3fa85f64-5717-4562-b3fc-2c963f66afa6' does not exist."
+    assert (
+        body["detail"]
+        == "Tenant '3fa85f64-5717-4562-b3fc-2c963f66afa6' does not exist."
+    )
     assert body["instance"] == "/test-errors/not-found"
     assert "request_id" in body
     assert body["request_id"] == response.headers["x-request-id"]
@@ -197,7 +202,10 @@ def test_custom_app_errors(client: TestClient) -> None:
 
     res_serv = client.get("/test-errors/service-unavailable")
     assert res_serv.status_code == 503
-    assert res_serv.json()["type"] == "https://tem-platform.dev/problems/service-unavailable"
+    assert (
+        res_serv.json()["type"]
+        == "https://tem-platform.dev/problems/service-unavailable"
+    )
 
 
 def test_x_request_id_forwarding(client: TestClient) -> None:
@@ -212,7 +220,9 @@ def test_x_request_id_forwarding(client: TestClient) -> None:
 def test_malicious_crlf_x_request_id_is_sanitized(client: TestClient) -> None:
     # Attempt CRLF / Header Injection (OWASP A03)
     malicious_id = "safe-id\r\nSet-Cookie: session=evil\r\nInjected-Header: true"
-    response = client.get("/test-errors/not-found", headers={"X-Request-ID": malicious_id})
+    response = client.get(
+        "/test-errors/not-found", headers={"X-Request-ID": malicious_id}
+    )
 
     assert response.status_code == 404
     # Must reject malicious input and substitute a valid UUID
@@ -228,7 +238,10 @@ def test_http_exception_500_masks_internal_details(client: TestClient) -> None:
 
     @app.get("/test-errors/explicit-http-500")
     async def trigger_http_500():
-        raise HTTPException(status_code=500, detail="Database credentials invalid: postgres://user:secret@db:5432")
+        raise HTTPException(
+            status_code=500,
+            detail="Database credentials invalid: postgres://user:secret@db:5432",
+        )
 
     test_client = TestClient(app, raise_server_exceptions=False)
     response = test_client.get("/test-errors/explicit-http-500")
@@ -237,3 +250,62 @@ def test_http_exception_500_masks_internal_details(client: TestClient) -> None:
     assert response.json()["detail"] == "An unexpected server error occurred."
     assert "secret" not in response.text
     assert "postgres://" not in response.text
+
+
+def test_pydantic_validation_error_returns_rfc9457() -> None:
+    app = create_test_app()
+
+    @app.get("/test-errors/pydantic-validation-failure")
+    async def trigger_pydantic_validation():
+        # Force a Pydantic ValidationError
+        ItemPayload(name="a", count=-5)
+
+    test_client = TestClient(app, raise_server_exceptions=False)
+    response = test_client.get("/test-errors/pydantic-validation-failure")
+
+    assert response.status_code == 422
+    assert response.headers["content-type"] == "application/problem+json"
+    body = response.json()
+    assert body["type"] == "https://tem-platform.dev/problems/validation-error"
+    assert body["title"] == "Validation Error"
+    assert "errors" in body
+    fields = [err["field"] for err in body["errors"]]
+    assert "name" in fields
+    assert "count" in fields
+
+
+def test_problem_base_url_custom_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core import config
+
+    custom_url = "https://staging.tem-platform.dev/problems"
+    monkeypatch.setenv("PROBLEM_BASE_URL", custom_url)
+    config.get_settings.cache_clear()
+
+    app = create_test_app()
+    test_client = TestClient(app, raise_server_exceptions=False)
+    response = test_client.get("/test-errors/not-found")
+
+    assert response.status_code == 404
+    assert response.json()["type"] == f"{custom_url}/not-found"
+
+    # Reset cache
+    config.get_settings.cache_clear()
+
+
+def test_single_source_of_truth_metadata_consistency() -> None:
+    from app.core.errors import (
+        APP_ERROR_TYPES,
+        COMMON_ERROR_RESPONSES,
+        PROBLEM_REGISTRY,
+    )
+
+    for err_cls in APP_ERROR_TYPES:
+        assert err_cls.status_code in PROBLEM_REGISTRY
+        slug, title = PROBLEM_REGISTRY[err_cls.status_code]
+        assert slug == err_cls.slug
+        assert title == err_cls.title
+
+        assert err_cls.status_code in COMMON_ERROR_RESPONSES
+        assert (
+            COMMON_ERROR_RESPONSES[err_cls.status_code]["description"] == err_cls.title
+        )

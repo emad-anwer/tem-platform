@@ -131,8 +131,7 @@ class RedisManager:
                     f"{settings.redis_max_retries} attempts"
                 ) from None
             logger.warning(
-                "Redis not available after %d attempts, "
-                "running without cache/queue",
+                "Redis not available after %d attempts, running without cache/queue",
                 settings.redis_max_retries,
             )
 
@@ -266,6 +265,7 @@ def set_manager(manager: RedisManager) -> None:
 # it MUST be awaited. There is deliberately no sync accessor: calling an
 # async function without await silently returns a coroutine object whose
 # truthiness is always True, which would only explode later at usage time.
+
 
 async def get_redis() -> Redis | None:
     manager = await _get_manager()
