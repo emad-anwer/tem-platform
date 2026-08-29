@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     environment: str = "dev"
     log_level: str = "INFO"
 
-    database_url: PostgresDsn
+    database_url: PostgresDsn = PostgresDsn(
+        "postgresql+asyncpg://user:pass@localhost:5432/db"
+    )
     # RedisDsn validates the URL format at startup (Settings load time)
     # instead of failing later at runtime when a connection is first attempted.
     redis_url: RedisDsn = RedisDsn("redis://localhost:6379/0")

@@ -32,6 +32,9 @@ class TenantRepository:
         result = await self._session.execute(select(Tenant).where(Tenant.slug == slug))
         return result.scalar_one_or_none()
 
-    async def list(self) -> Sequence[Tenant]:
-        result = await self._session.execute(select(Tenant).order_by(Tenant.name))
-        return result.scalars().all()
+    async def list(self, *, limit: int = 20, offset: int = 0) -> tuple[Sequence[Tenant], int]:
+        total = await self._session.scalar(select(Tenant.id).count())
+        result = await self._session.execute(
+            select(Tenant).order_by(Tenant.name).limit(limit).offset(offset)
+        )
+        return result.scalars().all(), total or 0
