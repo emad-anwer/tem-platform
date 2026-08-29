@@ -435,6 +435,7 @@ On macOS: `brew install just`. On Linux: `curl --proto '=https' --tlsv1.2 -sSf h
 ### `ruff` / linting not found
 
 **Symptom:** `just lint` says `ruff: command not found`.
+Run `just` to see all available commands.
 
 **Fix:** Lint commands run on the host, not in Docker. Set up a local env:
 
@@ -444,17 +445,17 @@ source .venv/bin/activate
 just lint
 ```
 
----
 
 ## Documentation
 
-| Doc | What it is |
-|---|---|
-| [ROADMAP.md](docs/ROADMAP.md) | The 8-week plan — what gets built when, and why in that order |
-| [DECISIONS.md](docs/DECISIONS.md) | Every architectural decision and the reasoning behind it |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How we work: branches, PRs, review, definition of done |
-| [docs/api-conventions.md](docs/api-conventions.md) | Error envelope, pagination, naming — agreed by the team in week 1 |
-| [docs/target-lab.md](docs/target-lab.md) | Target lab setup for ASM development |
+| Doc                                | What it is                                                        |
+| ---------------------------------- | ----------------------------------------------------------------- |
+| [ROADMAP.md](docs/ROADMAP.md)      | The 8-week plan — what gets built when, and why in that order     |
+| [DECISIONS.md](docs/DECISIONS.md)  | Every architectural decision and the reasoning behind it          |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How we work: branches, PRs, review, definition of done            |
+| `docs/adr/`                        | Architecture Decision Records                                     |
+| `docs/api-conventions.md`          | Error envelope, pagination, naming — agreed by the team in week 1 |
+
 
 ## The one rule
 
