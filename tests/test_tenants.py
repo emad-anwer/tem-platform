@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.main import create_app
-from app.core.tenants import get_tenant_service
+from app.core.service import get_tenant_service
 
 
 class FakeTenantService:

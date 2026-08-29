@@ -17,7 +17,7 @@ from app.core.errors import (
 from app.core.health import router as health_router
 from app.core.logging import setup_logging
 from app.core.redis import dispose_redis, wait_for_redis
-from app.core.tenants import router as tenant_router
+from app.core.routes import router as tenant_router
 
 logger = logging.getLogger(__name__)
 
