@@ -30,7 +30,7 @@ that's a real engineering skill, not an admission of confusion.
 
 ## Stack
 
-Python 3.11 · FastAPI · PostgreSQL 16 · Redis 7 · SQLAlchemy 2.0 (async) · Alembic · Docker Compose · `just` · `uv` · Ruff
+Python 3.11 · FastAPI · PostgreSQL 16 · Clickhouse . Redis 7 · SQLAlchemy 2.0 (async) · Alembic · Docker Compose · `just` · `uv` · Ruff 
 
 ---
 
