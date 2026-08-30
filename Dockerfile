@@ -22,7 +22,7 @@ FROM builder AS dev
 ENV PATH="/app/.venv/bin:$PATH"
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable
+    uv sync --locked
 
 FROM python:3.11-slim AS runtime
 
