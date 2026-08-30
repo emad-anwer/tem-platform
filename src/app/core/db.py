@@ -88,7 +88,7 @@ async def check_db_connection() -> bool:
             await conn.execute(text("SELECT 1"))
         healthy = True
 
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("Database connection check failed")
         healthy = False
 
