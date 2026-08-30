@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import Tenant
@@ -32,9 +32,19 @@ class TenantRepository:
         result = await self._session.execute(select(Tenant).where(Tenant.slug == slug))
         return result.scalar_one_or_none()
 
-    async def list(self, *, limit: int = 20, offset: int = 0) -> tuple[Sequence[Tenant], int]:
-        total = await self._session.scalar(select(Tenant.id).count())
-        result = await self._session.execute(
-            select(Tenant).order_by(Tenant.name).limit(limit).offset(offset)
+    async def list(
+        self, *, limit: int = 20, offset: int = 0
+    ) -> tuple[Sequence[Tenant], int]:
+        total_result = await self._session.execute(
+            select(func.count(Tenant.id))
         )
-        return result.scalars().all(), total or 0
+        total = total_result.scalar_one()
+
+        result = await self._session.execute(
+            select(Tenant)
+            .order_by(Tenant.name)
+            .limit(limit)
+            .offset(offset)
+        )
+
+        return result.scalars().all(), total
