@@ -1,7 +1,23 @@
+from enum import StrEnum
 from functools import lru_cache
 
 from pydantic import PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Environment(StrEnum):
+    DEV = "dev"
+    STAGING = "staging"
+    PROD = "prod"
+
+
+class LogLevel(StrEnum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
 
 
 class Settings(BaseSettings):

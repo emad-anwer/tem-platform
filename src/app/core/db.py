@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import get_settings
+from app.core.config import LogLevel, get_settings
+
 
 # Global variables to hold the database engine and session factory (lazy initialization)
 _engine: AsyncEngine | None = None
@@ -88,7 +89,7 @@ async def check_db_connection() -> bool:
         healthy = True
 
     except SQLAlchemyError:
-        logger.error("Database connection check failed")
+        logger.exception("Database connection check failed")
         healthy = False
 
     _last_check = (now, healthy)
