@@ -6,3 +6,20 @@ __pycache__/
 strix/
 strix_runs/
 instructions.md
+notes.txt
+
+# Sensitive files and private keys
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+*.keystore
+*.jks
+*.pkcs12
+*.rsa
+*.dsa
+*.ecdsa
+.env*
+!.env.example

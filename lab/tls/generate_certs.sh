@@ -6,6 +6,9 @@ CERTS_DIR="${SCRIPT_DIR}/certs"
 
 mkdir -p "${CERTS_DIR}"
 
+# Ensure generated certificates are ignored by Git
+echo "*" > "${CERTS_DIR}/.gitignore"
+
 echo "Generating self-signed certificate with Subject Alternative Names (SAN)..."
 
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
