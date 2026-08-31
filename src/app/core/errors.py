@@ -281,9 +281,11 @@ def create_problem_response(
     parsed_errors: list[ValidationErrorItem] | None = None
     if errors is not None:
         parsed_errors = [
-            item
-            if isinstance(item, ValidationErrorItem)
-            else ValidationErrorItem(**item)
+            (
+                item
+                if isinstance(item, ValidationErrorItem)
+                else ValidationErrorItem(**item)
+            )
             for item in errors
         ]
 
@@ -298,7 +300,6 @@ def create_problem_response(
     )
 
     response_headers = dict(headers) if headers else {}
-    response_headers["x-request-id"] = safe_req_id
 
     return JSONResponse(
         status_code=status_code,
