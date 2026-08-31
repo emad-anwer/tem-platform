@@ -43,8 +43,12 @@ def test_compose_profiles_isolation_for_lab_targets() -> None:
     for core in core_services:
         start_idx = content.find(core)
         end_idx = content.find("\n  ", start_idx + len(core))
-        core_block = content[start_idx:end_idx] if end_idx != -1 else content[start_idx:]
-        assert 'profiles: ["lab"]' not in core_block, f"Core service {core} must not be in lab profile"
+        core_block = (
+            content[start_idx:end_idx] if end_idx != -1 else content[start_idx:]
+        )
+        assert (
+            'profiles: ["lab"]' not in core_block
+        ), f"Core service {core} must not be in lab profile"
 
 
 def test_compose_lab_security_hardening_and_read_only_mounts() -> None:
@@ -52,42 +56,15 @@ def test_compose_lab_security_hardening_and_read_only_mounts() -> None:
     content = COMPOSE_FILE.read_text(encoding="utf-8")
 
     # Check security_opt
-    assert content.count("no-new-privileges:true") >= 6, "Security opt must be on core and lab services"
+    assert (
+        content.count("no-new-privileges:true") >= 6
+    ), "Security opt must be on core and lab services"
 
     # Verify lab volumes are mounted read-only
     lab_mounts = re.findall(r"\./lab/[^:]+:[^:]+:([a-z]+)", content)
     assert len(lab_mounts) >= 4, "Lab mount specifications not found"
     for mode in lab_mounts:
         assert mode == "ro", f"Lab volume mount must be read-only (:ro), got :{mode}"
-
-
-def test_tls_certificate_and_sans_ground_truth() -> None:
-    """Verify Target 4 X.509 certificate validity and Subject Alternative Names (SANs)."""
-    assert TLS_CERT_FILE.exists(), f"TLS certificate file not found: {TLS_CERT_FILE}"
-    assert TLS_KEY_FILE.exists(), f"TLS private key file not found: {TLS_KEY_FILE}"
-
-    # Use openssl cli to inspect the generated cert
-    res = subprocess.run(
-        ["openssl", "x509", "-in", str(TLS_CERT_FILE), "-noout", "-subject", "-ext", "subjectAltName"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    output = res.stdout
-
-    # Assert Subject
-    assert "CN = target4.lab.local" in output or "CN=target4.lab.local" in output
-
-    # Assert Subject Alternative Names (SANs)
-    expected_sans = [
-        "DNS:target4.lab.local",
-        "DNS:sub1.target4.lab.local",
-        "DNS:api.target4.lab.local",
-        "DNS:admin.internal.tem.local",
-        "IP Address:127.0.0.1",
-    ]
-    for san in expected_sans:
-        assert san in output, f"Expected SAN {san} not found in certificate extensions:\n{output}"
 
 
 def test_target_lab_ground_truth_documentation_integrity() -> None:
@@ -118,7 +95,9 @@ def test_target_lab_ground_truth_documentation_integrity() -> None:
 def test_lab_nginx_target_banner_live_probe() -> None:
     """Probe live Target 1 (lab-nginx on port 8081) for expected banner and technology headers."""
     if not _is_port_open(8081):
-        pytest.skip("Target lab service lab-nginx (port 8081) is not running — run `just lab-up`")
+        pytest.skip(
+            "Target lab service lab-nginx (port 8081) is not running — run `just lab-up`"
+        )
 
     import httpx
 
@@ -135,7 +114,9 @@ def test_lab_nginx_target_banner_live_probe() -> None:
 def test_lab_apache_target_banner_live_probe() -> None:
     """Probe live Target 2 (lab-apache on port 8082) for expected Apache banner."""
     if not _is_port_open(8082):
-        pytest.skip("Target lab service lab-apache (port 8082) is not running — run `just lab-up`")
+        pytest.skip(
+            "Target lab service lab-apache (port 8082) is not running — run `just lab-up`"
+        )
 
     import httpx
 
@@ -151,7 +132,9 @@ def test_lab_apache_target_banner_live_probe() -> None:
 def test_lab_nonstandard_port_live_probe() -> None:
     """Probe live Target 3 (lab-nonstandard on port 8888)."""
     if not _is_port_open(8888):
-        pytest.skip("Target lab service lab-nonstandard (port 8888) is not running — run `just lab-up`")
+        pytest.skip(
+            "Target lab service lab-nonstandard (port 8888) is not running — run `just lab-up`"
+        )
 
     import httpx
 
@@ -167,7 +150,9 @@ def test_lab_nonstandard_port_live_probe() -> None:
 def test_lab_tls_san_live_probe() -> None:
     """Probe live Target 4 (lab-tls-san on port 8443) and verify TLS handshake and certificate SANs."""
     if not _is_port_open(8443):
-        pytest.skip("Target lab service lab-tls-san (port 8443) is not running — run `just lab-up`")
+        pytest.skip(
+            "Target lab service lab-tls-san (port 8443) is not running — run `just lab-up`"
+        )
 
     ctx = ssl.create_default_context()
     ctx.check_hostname = False

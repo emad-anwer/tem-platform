@@ -22,11 +22,15 @@ async def lifespan(app: FastAPI):
     try:
         await wait_for_db()
     except Exception:
-        logger.warning("Database startup check failed; continuing without a live DB connection.")
+        logger.warning(
+            "Database startup check failed; continuing without a live DB connection."
+        )
     try:
         await wait_for_redis()
     except Exception:
-        logger.warning("Redis startup check failed; continuing without cache/queue support.")
+        logger.warning(
+            "Redis startup check failed; continuing without cache/queue support."
+        )
     yield
     try:
         await dispose_redis()
@@ -56,6 +60,7 @@ def _problem_response(
         problem_type=problem_type,
         errors=errors,
     )
+
     return JSONResponse(
         status_code=status_code,
         content=payload,
