@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     environment: str = "dev"
     log_level: str = "INFO"
 
-    database_url: PostgresDsn
+    database_url: PostgresDsn = PostgresDsn(
+        "postgresql+asyncpg://user:pass@localhost:5432/db"
+    )
     # RedisDsn validates the URL format at startup (Settings load time)
     # instead of failing later at runtime when a connection is first attempted.
     redis_url: RedisDsn = RedisDsn("redis://localhost:6379/0")
@@ -34,12 +36,12 @@ class Settings(BaseSettings):
     # In dev, Redis failure is tolerated — the app runs without cache/queue.
     redis_required: bool = False
 
+    problem_base_url: str = "https://tem-platform.dev/problems"
+
     # Fail-closed: FastAPI debug tracebacks leak source code and absolute
     # paths on unhandled errors (OWASP A05), so debug may only be enabled
-    # explicitly. An unset or mistyped ENVIRONMENT must never turn it on.
-    @property
-    def debug(self) -> bool:
-        return self.environment == "dev"
+    # explicitly via setting DEBUG=true. Default is False.
+    debug: bool = False
 
 
 @lru_cache
