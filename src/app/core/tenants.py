@@ -8,13 +8,17 @@ The actual implementation lives in the dedicated core modules:
 """
 
 from app.core.routes import router
-from app.core.schemas import TenantCreateRequest, TenantListResponse, TenantResponse
+from app.core.schemas import (
+    TenantCollectionDocument,
+    TenantCreateRequest,
+    TenantDocument,
+)
 from app.core.service import TenantService, get_tenant_service
 
 __all__ = [
+    "TenantCollectionDocument",
     "TenantCreateRequest",
-    "TenantListResponse",
-    "TenantResponse",
+    "TenantDocument",
     "TenantService",
     "get_tenant_service",
     "router",

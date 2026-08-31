@@ -1,6 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
+
 async def test_create_tenant_succeeds(client: AsyncClient) -> None:
     response = await client.post(
         "/api/v1/tenants",
@@ -9,12 +10,15 @@ async def test_create_tenant_succeeds(client: AsyncClient) -> None:
     assert response.status_code == 201
     assert response.headers["location"].startswith("/api/v1/tenants/")
     payload = response.json()
-    assert payload["name"] == "Acme Corp"
-    assert payload["slug"] == "acme-corp"
+    assert payload["data"]["type"] == "tenants"
+    assert payload["data"]["attributes"]["name"] == "Acme Corp"
+    assert payload["data"]["attributes"]["slug"] == "acme-corp"
 
 
 async def test_duplicate_slug_returns_409(client: AsyncClient) -> None:
-    await client.post("/api/v1/tenants", json={"name": "Acme Corp", "slug": "acme-corp"})
+    await client.post(
+        "/api/v1/tenants", json={"name": "Acme Corp", "slug": "acme-corp"}
+    )
 
     response = await client.post(
         "/api/v1/tenants", json={"name": "Acme Again", "slug": "acme-corp"}
@@ -30,13 +34,13 @@ async def test_get_tenant_by_id(client: AsyncClient) -> None:
         json={"name": "Get Me", "slug": "get-me"},
     )
     assert create_response.status_code == 201
-    tenant_id = create_response.json()["id"]
+    tenant_id = create_response.json()["data"]["id"]
 
     response = await client.get(f"/api/v1/tenants/{tenant_id}")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["id"] == tenant_id
-    assert payload["name"] == "Get Me"
+    assert payload["data"]["id"] == tenant_id
+    assert payload["data"]["attributes"]["name"] == "Get Me"
 
 
 async def test_list_returns_created_tenant(client: AsyncClient) -> None:
@@ -46,5 +50,5 @@ async def test_list_returns_created_tenant(client: AsyncClient) -> None:
     assert response.status_code == 200
     payload = response.json()
 
-    slugs = [item["slug"] for item in payload["items"]]
+    slugs = [item["attributes"]["slug"] for item in payload["data"]]
     assert "list-me" in slugs

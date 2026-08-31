@@ -10,6 +10,7 @@ import os
 
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 
+
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def create_schema():
     engine = create_async_engine(TEST_DATABASE_URL)
@@ -57,6 +58,8 @@ async def client(app, db_session: AsyncSession):
     app.dependency_overrides[get_db] = override_get_db
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+    async with AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as async_client:
         yield async_client
     app.dependency_overrides.clear()

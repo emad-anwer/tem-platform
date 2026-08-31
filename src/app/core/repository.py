@@ -1,12 +1,28 @@
 """Database access for shared platform entities."""
 
+import base64
+import json
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import Tenant
+
+
+def encode_tenant_cursor(name: str, tenant_id: UUID) -> str:
+    payload = json.dumps([name, str(tenant_id)])
+    return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+
+
+def decode_tenant_cursor(cursor: str) -> tuple[str, UUID]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        name, id_str = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        return name, UUID(id_str)
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid cursor.") from exc
 
 
 class TenantRepository:
@@ -33,18 +49,20 @@ class TenantRepository:
         return result.scalar_one_or_none()
 
     async def list(
-        self, *, limit: int = 20, offset: int = 0
-    ) -> tuple[Sequence[Tenant], int]:
-        total_result = await self._session.execute(
-            select(func.count(Tenant.id))
-        )
-        total = total_result.scalar_one()
+        self, *, limit: int = 20, cursor: str | None = None
+    ) -> tuple[Sequence[Tenant], str | None]:
+        stmt = select(Tenant).order_by(Tenant.name, Tenant.id).limit(limit + 1)
+        if cursor is not None:
+            name, tenant_id = decode_tenant_cursor(cursor)
+            stmt = stmt.where(tuple_(Tenant.name, Tenant.id) > (name, tenant_id))
 
-        result = await self._session.execute(
-            select(Tenant)
-            .order_by(Tenant.name)
-            .limit(limit)
-            .offset(offset)
-        )
+        result = await self._session.execute(stmt)
+        items = list(result.scalars().all())
 
-        return result.scalars().all(), total
+        next_cursor = None
+        if len(items) > limit:
+            items = items[:limit]
+            last = items[-1]
+            next_cursor = encode_tenant_cursor(last.name, last.id)
+
+        return items, next_cursor
