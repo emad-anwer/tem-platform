@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -26,16 +27,41 @@ class TenantCreateRequest(BaseModel):
         return value
 
 
-class TenantResponse(BaseModel):
+class TenantAttributes(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
     name: str
     slug: str
     is_active: bool
     created_at: datetime
 
 
-class TenantListResponse(BaseModel):
-    items: list[TenantResponse]
-    pagination: dict[str, int]
+class TenantResource(BaseModel):
+    """A JSON:API resource object for a tenant."""
+
+    type: Literal["tenants"] = "tenants"
+    id: UUID
+    attributes: TenantAttributes
+
+    @classmethod
+    def from_tenant(cls, tenant: Any) -> TenantResource:
+        tenant_id = tenant["id"] if isinstance(tenant, dict) else tenant.id
+        return cls(id=tenant_id, attributes=TenantAttributes.model_validate(tenant))
+
+
+class TenantDocument(BaseModel):
+    """A JSON:API document wrapping a single tenant resource."""
+
+    data: TenantResource
+
+
+class TenantCollectionLinks(BaseModel):
+    self: str
+    next: str | None = None
+
+
+class TenantCollectionDocument(BaseModel):
+    """A JSON:API document wrapping a page of tenant resources."""
+
+    data: list[TenantResource]
+    links: TenantCollectionLinks
