@@ -1,4 +1,4 @@
-import logging
+import structlog
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,10 +10,11 @@ from app.core.db import dispose_engine, wait_for_db
 from app.core.errors import register_error_handlers
 from app.core.health import router as health_router
 from app.core.logging import setup_logging
+from app.core.middlewares.request_id import RequestIDMiddleware
 from app.core.redis import dispose_redis, wait_for_redis
 from app.core.routes import router as tenant_router
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def lifespan(app: FastAPI):
@@ -66,6 +67,8 @@ def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings.log_level)
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+    # Middlewares
+    app.add_middleware(RequestIDMiddleware)
 
     # Register RFC 9457 exception handlers
     register_error_handlers(app)
