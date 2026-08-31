@@ -36,6 +36,8 @@ class TenantService:
     async def get_tenant(self, tenant_id: UUID) -> Tenant | None:
         return await self._repository.get_by_id(tenant_id)
 
-    async def list_tenants(self, *, limit: int, offset: int) -> tuple[list[Tenant], int]:
-        items, total = await self._repository.list(limit=limit, offset=offset)
-        return list(items), total
+    async def list_tenants(
+        self, *, limit: int, cursor: str | None = None
+    ) -> tuple[list[Tenant], str | None]:
+        items, next_cursor = await self._repository.list(limit=limit, cursor=cursor)
+        return list(items), next_cursor

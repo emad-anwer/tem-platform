@@ -25,9 +25,11 @@ class FakeTenantService:
         self.tenants.append(tenant)
         return tenant
 
-    async def list_tenants(self, *, limit: int, offset: int):
-        items = self.tenants[offset : offset + limit]
-        return items, len(self.tenants)
+    async def list_tenants(self, *, limit: int, cursor: str | None = None):
+        start = int(cursor) if cursor is not None else 0
+        items = self.tenants[start : start + limit]
+        next_cursor = str(start + limit) if start + limit < len(self.tenants) else None
+        return items, next_cursor
 
     async def get_tenant(self, tenant_id: str):
         for tenant in self.tenants:
@@ -55,8 +57,9 @@ def test_create_tenant_returns_201_and_location_header(client: TestClient) -> No
     assert response.status_code == 201
     assert response.headers["location"].endswith("/api/v1/tenants/") is False
     payload = response.json()
-    assert payload["name"] == "Acme Corp"
-    assert payload["slug"] == "acme-corp"
+    assert payload["data"]["type"] == "tenants"
+    assert payload["data"]["attributes"]["name"] == "Acme Corp"
+    assert payload["data"]["attributes"]["slug"] == "acme-corp"
 
 
 def test_create_tenant_rejects_invalid_slug(client: TestClient) -> None:
@@ -69,18 +72,24 @@ def test_create_tenant_rejects_invalid_slug(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("application/problem+json")
 
 
-def test_list_tenants_returns_paginated_payload(client: TestClient) -> None:
+def test_list_tenants_returns_cursor_paginated_payload(client: TestClient) -> None:
     client.post("/api/v1/tenants", json={"name": "Acme Corp", "slug": "acme-corp"})
     client.post("/api/v1/tenants", json={"name": "Beta Org", "slug": "beta-org"})
 
-    response = client.get("/api/v1/tenants?limit=1&offset=1")
+    first_page = client.get("/api/v1/tenants", params={"size": 1})
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["pagination"]["limit"] == 1
-    assert payload["pagination"]["offset"] == 1
-    assert payload["pagination"]["total"] == 2
-    assert len(payload["items"]) == 1
+    assert first_page.status_code == 200
+    first_payload = first_page.json()
+    assert first_payload["links"]["next"] is not None
+    assert len(first_payload["data"]) == 1
+    assert first_payload["data"][0]["type"] == "tenants"
+
+    second_page = client.get(first_payload["links"]["next"])
+
+    assert second_page.status_code == 200
+    second_payload = second_page.json()
+    assert second_payload["links"]["next"] is None
+    assert len(second_payload["data"]) == 1
 
 
 def test_get_tenant_returns_404_for_unknown_id(client: TestClient) -> None:
