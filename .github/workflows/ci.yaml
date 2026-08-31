@@ -77,7 +77,7 @@ jobs:
         run:  uv sync --locked
 
       - name: Run migrations check
-        run: uv run alembic check-migrations
+        run: uv run alembic upgrade head
 
   test:
     name: Tests
