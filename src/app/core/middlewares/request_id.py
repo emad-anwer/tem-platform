@@ -1,7 +1,8 @@
 import re
-import structlog
-import uuid
 import time
+import uuid
+
+import structlog
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 REQUEST_ID_REGEX = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")

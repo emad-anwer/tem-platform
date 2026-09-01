@@ -3,7 +3,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import Depends
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +12,7 @@ from app.core.models import Tenant
 from app.core.repository import TenantRepository
 
 
-async def get_tenant_service(session: AsyncSession = Depends(get_db)) -> "TenantService":
+async def get_tenant_service(session: AsyncSession = Depends(get_db)) -> TenantService:
     return TenantService(session)
 
 
@@ -22,13 +21,17 @@ class TenantService:
         self._session = session
         self._repository = TenantRepository(session)
 
-    async def create_tenant(self, *, name: str, slug: str, is_active: bool = True) -> Tenant:
+    async def create_tenant(
+        self, *, name: str, slug: str, is_active: bool = True
+    ) -> Tenant:
         existing = await self._repository.get_by_slug(slug)
         if existing is not None:
             raise ConflictError(detail=f"Tenant slug '{slug}' already exists.")
 
         try:
-            return await self._repository.create(name=name, slug=slug, is_active=is_active)
+            return await self._repository.create(
+                name=name, slug=slug, is_active=is_active
+            )
         except IntegrityError as exc:
             await self._session.rollback()
             raise ConflictError(detail=f"Tenant slug '{slug}' already exists.") from exc
