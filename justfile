@@ -40,6 +40,41 @@ lab-down:
 lab-logs:
     docker compose --profile lab logs -f
 
+# follow logs from the zitadel service only
+zitadel-logs:
+    docker compose logs -f zitadel
+
+# print the Zitadel OIDC discovery document. Requires `127.0.0.1 zitadel` in
+# /etc/hosts first (see the issuer trap section of docs/zitadel-local.md) —
+# Zitadel resolves the virtual instance from the Host header, so plain
+# `localhost:8080` gets a 404 "Instance not found" here even though the port
+# is reachable.
+zitadel-discovery:
+    curl -s http://zitadel:8080/.well-known/openid-configuration | python3 -m json.tool
+
+# fetch an OAuth2 access token via the client_credentials grant, for a
+# machine user/app you've created by hand in the Zitadel console (see
+# docs/zitadel-local.md) — there is no automated bootstrap yet (W2-05).
+# Same /etc/hosts prerequisite as zitadel-discovery.
+zitadel-token client_id client_secret:
+    curl -s -u "{{client_id}}:{{client_secret}}" \
+        -d grant_type=client_credentials \
+        -d scope="openid urn:zitadel:iam:org:project:id:${ZITADEL_PROJECT_ID}:aud" \
+        http://zitadel:8080/oauth/v2/token | python3 -m json.tool
+
+# decode a JWT's header and payload without verifying the signature — for
+# eyeballing claims during local testing only, never a substitute for real
+# verification (that's W2-04's job).
+zitadel-decode token:
+    #!/usr/bin/env python3
+    import base64, json
+    def b64d(s):
+        s += "=" * (-len(s) % 4)
+        return base64.urlsafe_b64decode(s)
+    header, payload, _ = "{{token}}".split(".")
+    print(json.dumps(json.loads(b64d(header)), indent=2))
+    print(json.dumps(json.loads(b64d(payload)), indent=2))
+
 # run database migrations
 migrate:
     docker compose exec app alembic upgrade head
@@ -87,4 +122,5 @@ health:
     @echo "=== App ===" && curl -sf http://localhost:8000/healthz || echo "NOT HEALTHY"
     @echo "\n=== Postgres ===" && docker compose exec postgres pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} || echo "NOT HEALTHY"
     @echo "\n=== Redis ===" && docker compose exec -e REDISCLI_AUTH="${REDIS_PASSWORD}" redis redis-cli ping || echo "NOT HEALTHY"
+    @echo "\n=== Zitadel ===" && curl -sf http://localhost:8080/debug/healthz || echo "NOT HEALTHY"
 
