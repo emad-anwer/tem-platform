@@ -112,6 +112,10 @@ services:
     # separate Next.js login-UI topology that ships by default from v4 on.
     # See docs/zitadel-local.md for the reasoning.
     image: ghcr.io/zitadel/zitadel:v3.4.15
+    # --tlsMode disabled (below) is dev-only: nothing here terminates TLS, so
+    # this must never run reachable from outside your own machine. A real
+    # deployment puts a TLS-terminating proxy in front of Zitadel and drops
+    # this flag — see ZITADEL_EXTERNALSECURE/ZITADEL_TLS_ENABLED below too.
     command: >
       start-from-init
       --masterkey ${ZITADEL_MASTERKEY}
@@ -133,6 +137,9 @@ services:
       # itself depending on who's asking.
       ZITADEL_EXTERNALDOMAIN: zitadel
       ZITADEL_EXTERNALPORT: "8080"
+      # Both "false" for the same dev-only reason as --tlsMode above: plain
+      # HTTP, no certificate, fine on a laptop, never fine reachable from
+      # anywhere else.
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_TLS_ENABLED: "false"
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_ADMIN_USERNAME}
