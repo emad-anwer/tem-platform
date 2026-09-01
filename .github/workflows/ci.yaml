@@ -22,6 +22,7 @@ env:
   POSTGRES_PASSWORD: postgres
   POSTGRES_DB: tem_platform
   DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/tem_platform
+  TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/tem_platform
   # Validated in the test job, but not used in the service container.
   REDIS_PASSWORD: unused-in-ci
   REDIS_URL: redis://:unused-in-ci@localhost:6379/0
