@@ -56,6 +56,20 @@ already split across other W2 issues (see the intro above).
 | **Scope** | What you're asking the IdP for permission to see, requested during login (e.g. `openid`, or the role-claim scope in §4). Ask for the wrong/missing scope and the claim you wanted just won't show up — not an error, just silently absent. |
 | **PKCE** | A security add-on to the login flow (used by "public" clients like browser/mobile apps that can't safely hold a secret). You'll see `code_challenge`/`code_verifier` params because of it — you don't need to understand the cryptography, just that both values must match between the start and end of the flow. |
 | **Project / Role / Application** | Zitadel's own vocabulary — see the intro of §3 for what each one means before you start clicking. |
+| **Organization (Org)** | Zitadel's tenant boundary. Per ADR-0002 this is a **1:1 mapping**: one Org = one tenant in our system. See the callout below — this is easy to conflate with "Project" but they are not the same thing. |
+
+**How this maps to *our* tenants specifically:** the Project/Roles/Application you set up in §3
+is **platform-wide, one-time setup** — there is exactly one of each, shared by every tenant.
+Tenants map to **Organizations** instead: per ADR-0002, one Zitadel Org = one tenant, always 1:1.
+The Org the bootstrap admin lands in at first boot (`ZITADEL_FIRSTINSTANCE_ORG_*`) is just
+"tenant zero" for local testing — nothing about it is structurally special. When W2-09
+(tenant provisioning) creates a *new* tenant later, that means creating a *new Org* via the
+Management API (`POST /orgs`) and granting its users roles against the **same** shared project —
+never a new project, never a new application. At login, the
+`urn:zitadel:iam:user:resourceowner:id` claim in a user's JWT is literally their **Org ID** —
+that's the only place `tenant_id` is allowed to come from, per ADR-0002 (never a URL/header/query
+param). So: **Org = tenant, Project = the platform, one shared thing every tenant's users get
+granted roles against.**
 
 ---
 
