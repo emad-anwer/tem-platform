@@ -471,11 +471,11 @@ and may look nothing like this:
 import jwt  # PyJWT
 from jwt import PyJWKClient
 
-ISSUER = "http://zitadel:8080"        # ZITADEL_ISSUER
-AUDIENCE = "<ZITADEL_PROJECT_ID>"      # ZITADEL_PROJECT_ID
-JWKS_URL = f"{ISSUER}/oauth/v2/keys"   # NOT /.well-known/jwks.json — see §7 finding 2
+ISSUER = "http://zitadel:8080"  # ZITADEL_ISSUER
+AUDIENCE = "<ZITADEL_PROJECT_ID>"  # ZITADEL_PROJECT_ID
+JWKS_URL = f"{ISSUER}/oauth/v2/keys"  # NOT /.well-known/jwks.json — see §7 finding 2
 
-jwks_client = PyJWKClient(JWKS_URL)    # W2-04: cache this; don't refetch every request
+jwks_client = PyJWKClient(JWKS_URL)  # W2-04: cache this; don't refetch every request
 
 
 class Principal:
@@ -490,7 +490,9 @@ def verify_and_build_principal(token: str) -> Principal:
     claims = jwt.decode(
         token,
         signing_key.key,
-        algorithms=["RS256"],   # pin the algorithm — never trust `alg` from the token itself
+        algorithms=[
+            "RS256"
+        ],  # pin the algorithm — never trust `alg` from the token itself
         issuer=ISSUER,
         audience=AUDIENCE,
     )

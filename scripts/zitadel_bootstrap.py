@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 PROJECT_NAME = "tem-platform"
 APPLICATION_NAME = "tem-platform-dev"
 DEV_ORG_NAME = "tem-platform-dev"
@@ -35,9 +34,7 @@ class Config:
     def from_env(cls) -> Config:
         values = {
             "ZITADEL_ISSUER": os.getenv("ZITADEL_ISSUER"),
-            "ZITADEL_BOOTSTRAP_PAT_PATH": os.getenv(
-                "ZITADEL_BOOTSTRAP_PAT_PATH"
-            ),
+            "ZITADEL_BOOTSTRAP_PAT_PATH": os.getenv("ZITADEL_BOOTSTRAP_PAT_PATH"),
             "ZITADEL_REDIRECT_URI": os.getenv(
                 "ZITADEL_REDIRECT_URI",
                 "http://localhost:3000/callback",
@@ -50,22 +47,13 @@ class Config:
                 "ZITADEL_DEV_EMAIL",
                 "dev-user@tem-platform.local",
             ),
-            "ZITADEL_DEV_PASSWORD": os.getenv(
-                "ZITADEL_DEV_PASSWORD"
-            ),
+            "ZITADEL_DEV_PASSWORD": os.getenv("ZITADEL_DEV_PASSWORD"),
         }
 
-        missing = [
-            key
-            for key, value in values.items()
-            if value is None
-        ]
+        missing = [key for key, value in values.items() if value is None]
 
         if missing:
-            raise RuntimeError(
-                "Missing environment variables: "
-                + ", ".join(missing)
-            )
+            raise RuntimeError("Missing environment variables: " + ", ".join(missing))
 
         return cls(
             issuer=values["ZITADEL_ISSUER"].rstrip("/"),
@@ -80,12 +68,8 @@ class Config:
 class ZitadelClient:
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.base_url = (
-            f"{config.issuer}/management/v1"
-        )
-        self.admin_base_url = (
-            f"{config.issuer}/admin/v1"
-        )
+        self.base_url = f"{config.issuer}/management/v1"
+        self.admin_base_url = f"{config.issuer}/admin/v1"
 
     def wait_until_ready(self, timeout_seconds: int = 180) -> None:
         deadline = time.monotonic() + timeout_seconds
@@ -99,7 +83,7 @@ class ZitadelClient:
                 )
                 with urllib.request.urlopen(request, timeout=10):
                     return
-            except Exception as exc:
+            except (urllib.error.URLError, TimeoutError) as exc:
                 last_error = exc
                 time.sleep(2)
 
@@ -116,9 +100,7 @@ class ZitadelClient:
                 if not self.config.pat_path.exists():
                     raise FileNotFoundError(self.config.pat_path)
 
-                token = self.config.pat_path.read_text(
-                    encoding="utf-8"
-                ).strip()
+                token = self.config.pat_path.read_text(encoding="utf-8").strip()
 
                 if not token:
                     raise RuntimeError(
@@ -126,7 +108,7 @@ class ZitadelClient:
                     )
 
                 return token
-            except Exception as exc:
+            except (OSError, UnicodeError) as exc:
                 last_error = exc
                 time.sleep(2)
 
@@ -192,24 +174,19 @@ class ZitadelClient:
 
             normalized_messages = {
                 "".join(
-                    character.lower()
-                    for character in message
-                    if character.isalnum()
+                    character.lower() for character in message if character.isalnum()
                 )
                 for message in error_messages
                 if isinstance(message, str)
             }
 
-            if (
-                exc.code == 400
-                and any(
-                    (
-                        "nochanges" in message
-                        or "notchanged" in message
-                        or "notbeenchanged" in message
-                    )
-                    for message in normalized_messages
+            if exc.code == 400 and any(
+                (
+                    "nochanges" in message
+                    or "notchanged" in message
+                    or "notbeenchanged" in message
                 )
+                for message in normalized_messages
             ):
                 return {}
 
@@ -247,10 +224,7 @@ class ZitadelClient:
         if project:
             project_id = project["id"]
 
-            print(
-                f"Project exists: "
-                f"{PROJECT_NAME} ({project_id})"
-            )
+            print(f"Project exists: {PROJECT_NAME} ({project_id})")
 
             self.request(
                 "PUT",
@@ -278,10 +252,7 @@ class ZitadelClient:
 
         project_id = response["id"]
 
-        print(
-            f"Created project: "
-            f"{PROJECT_NAME} ({project_id})"
-        )
+        print(f"Created project: {PROJECT_NAME} ({project_id})")
 
         return project_id
 
@@ -301,10 +272,7 @@ class ZitadelClient:
         self,
         project_id: str,
     ) -> None:
-        existing = {
-            role["key"]: role
-            for role in self.search_project_roles(project_id)
-        }
+        existing = {role["key"]: role for role in self.search_project_roles(project_id)}
 
         for key, display_name in ROLES.items():
             role = existing.get(key)
@@ -349,29 +317,17 @@ class ZitadelClient:
         self,
         project_id: str,
     ) -> str:
-        applications = self.search_applications(
-            project_id
-        )
+        applications = self.search_applications(project_id)
 
         application = next(
-            (
-                app
-                for app in applications
-                if app.get("name") == APPLICATION_NAME
-            ),
+            (app for app in applications if app.get("name") == APPLICATION_NAME),
             None,
         )
 
         config = {
-            "redirectUris": [
-                self.config.redirect_uri
-            ],
-            "responseTypes": [
-                "OIDC_RESPONSE_TYPE_CODE"
-            ],
-            "grantTypes": [
-                "OIDC_GRANT_TYPE_AUTHORIZATION_CODE"
-            ],
+            "redirectUris": [self.config.redirect_uri],
+            "responseTypes": ["OIDC_RESPONSE_TYPE_CODE"],
+            "grantTypes": ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE"],
             "appType": "OIDC_APP_TYPE_NATIVE",
             "authMethodType": "OIDC_AUTH_METHOD_TYPE_NONE",
             "version": "OIDC_VERSION_1_0",
@@ -384,10 +340,7 @@ class ZitadelClient:
         if application:
             app_id = application["id"]
 
-            print(
-                f"Application exists: "
-                f"{APPLICATION_NAME} ({app_id})"
-            )
+            print(f"Application exists: {APPLICATION_NAME} ({app_id})")
 
             self.request(
                 "PUT",
@@ -397,10 +350,7 @@ class ZitadelClient:
 
             self.request(
                 "PUT",
-                (
-                    f"/projects/{project_id}/apps/"
-                    f"{app_id}/oidc_config"
-                ),
+                (f"/projects/{project_id}/apps/{app_id}/oidc_config"),
                 body=config,
             )
 
@@ -417,10 +367,7 @@ class ZitadelClient:
 
         app_id = response["appId"]
 
-        print(
-            f"Created application: "
-            f"{APPLICATION_NAME} ({app_id})"
-        )
+        print(f"Created application: {APPLICATION_NAME} ({app_id})")
 
         return app_id
 
@@ -455,11 +402,7 @@ class ZitadelClient:
     ) -> str:
         grants = self.search_project_grants(project_id)
         grant = next(
-            (
-                grant
-                for grant in grants
-                if grant.get("grantedOrgId") == org_id
-            ),
+            (grant for grant in grants if grant.get("grantedOrgId") == org_id),
             None,
         )
 
@@ -477,10 +420,7 @@ class ZitadelClient:
                 body={"roleKeys": list(ROLES.keys())},
             )
 
-            print(
-                "Reconciled dev organization project grant: "
-                "owner, analyst, viewer"
-            )
+            print("Reconciled dev organization project grant: owner, analyst, viewer")
             return grant_id
 
         response = self.request(
@@ -489,10 +429,7 @@ class ZitadelClient:
             body=body,
         )
 
-        print(
-            "Created dev organization project grant: "
-            "owner, analyst, viewer"
-        )
+        print("Created dev organization project grant: owner, analyst, viewer")
 
         return response["grantId"]
 
@@ -500,21 +437,14 @@ class ZitadelClient:
         organizations = self.search_organizations()
 
         organization = next(
-            (
-                org
-                for org in organizations
-                if org.get("name") == DEV_ORG_NAME
-            ),
+            (org for org in organizations if org.get("name") == DEV_ORG_NAME),
             None,
         )
 
         if organization:
             org_id = organization["id"]
 
-            print(
-                f"Organization exists: "
-                f"{DEV_ORG_NAME} ({org_id})"
-            )
+            print(f"Organization exists: {DEV_ORG_NAME} ({org_id})")
 
             return org_id
 
@@ -528,10 +458,7 @@ class ZitadelClient:
 
         org_id = response["id"]
 
-        print(
-            f"Created organization: "
-            f"{DEV_ORG_NAME} ({org_id})"
-        )
+        print(f"Created organization: {DEV_ORG_NAME} ({org_id})")
 
         return org_id
 
@@ -570,10 +497,7 @@ class ZitadelClient:
         if users:
             user_id = users[0]["id"]
 
-            print(
-                f"Dev user exists: "
-                f"{self.config.dev_username} ({user_id})"
-            )
+            print(f"Dev user exists: {self.config.dev_username} ({user_id})")
 
             self.ensure_dev_user_email(user_id, org_id)
             self.ensure_dev_user_password(user_id, org_id)
@@ -594,19 +518,14 @@ class ZitadelClient:
                     "email": self.config.dev_email,
                     "isEmailVerified": True,
                 },
-                "initialPassword": (
-                    self.config.dev_password
-                ),
+                "initialPassword": (self.config.dev_password),
             },
             org_id=org_id,
         )
 
         user_id = response["userId"]
 
-        print(
-            f"Created dev user: "
-            f"{self.config.dev_username} ({user_id})"
-        )
+        print(f"Created dev user: {self.config.dev_username} ({user_id})")
 
         return user_id
 
@@ -716,10 +635,7 @@ class ZitadelClient:
                 org_id=org_id,
             )
 
-            print(
-                "Reconciled dev user roles: "
-                "owner, analyst, viewer"
-            )
+            print("Reconciled dev user roles: owner, analyst, viewer")
 
             return
 
@@ -734,10 +650,7 @@ class ZitadelClient:
             org_id=org_id,
         )
 
-        print(
-            "Created dev user role assignment: "
-            "owner, analyst, viewer"
-        )
+        print("Created dev user role assignment: owner, analyst, viewer")
 
     def bootstrap(self) -> None:
         self.wait_until_ready()
@@ -786,7 +699,7 @@ def main() -> int:
 
         return 0
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(f"\nBootstrap failed: {exc}", file=sys.stderr)
         return 1
 
