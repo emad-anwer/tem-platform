@@ -15,7 +15,6 @@ permissions:
   contents: read
 
 env:
-  # Shared across jobs; Postgres-specific values also drive the service container below.
   APP_NAME: tem-platform
   ENVIRONMENT: ci
   LOG_LEVEL: INFO
@@ -32,7 +31,7 @@ jobs:
     name: Ruff
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout 
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -45,9 +44,9 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      
+
       - name: Install dependencies
-        run:  uv sync --locked
+        run: uv sync --locked
 
       - name: Run ruff check
         run: uv run ruff check .
@@ -58,30 +57,6 @@ jobs:
   migrations:
     name: Migrations
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout 
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      
-      - name: Install dependencies
-        run:  uv sync --locked
-
-      - name: Run migrations check
-        run: uv run alembic upgrade head
-
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres
@@ -89,7 +64,7 @@ jobs:
           POSTGRES_USER: ${{ env.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ env.POSTGRES_DB }}
-        ports: 
+        ports:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d tem_platform"
@@ -114,6 +89,43 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Run migrations check
+        run: uv run alembic upgrade head
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tem_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked
 
       - name: Run tests
         run: uv run pytest -m "not e2e"
