@@ -163,6 +163,7 @@ Suppose ASM needs CVE context while scanning an asset. A boundary violation woul
 # src/app/modules/asm/service.py
 from app.modules.intel.service import enrich_with_cves
 
+
 def build_asset_report(asset_id: str) -> AssetReport:
     cves = enrich_with_cves(asset_id)
     ...
@@ -178,6 +179,7 @@ Define the capability in `core`, then let Intel implement it:
 # src/app/core/contracts.py
 from typing import Protocol
 
+
 class CVEEnrichmentPort(Protocol):
     def enrich(self, asset_id: str) -> list[str]: ...
 ```
@@ -186,14 +188,15 @@ class CVEEnrichmentPort(Protocol):
 # src/app/modules/intel/service.py
 from app.core.contracts import CVEEnrichmentPort
 
+
 class IntelCVEEnricher:
-    def enrich(self, asset_id: str) -> list[str]:
-        ...
+    def enrich(self, asset_id: str) -> list[str]: ...
 ```
 
 ```python
 # src/app/modules/asm/service.py
 from app.core.contracts import CVEEnrichmentPort
+
 
 class ASMService:
     def __init__(self, cve_enricher: CVEEnrichmentPort) -> None:

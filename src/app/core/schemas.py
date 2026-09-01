@@ -21,7 +21,9 @@ class TenantCreateRequest(BaseModel):
         if not value.islower():
             raise ValueError("slug must be lowercase")
         if any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789-" for ch in value):
-            raise ValueError("slug may only contain lowercase letters, numbers, and hyphens")
+            raise ValueError(
+                "slug may only contain lowercase letters, numbers, and hyphens"
+            )
         if value.startswith("-") or value.endswith("-"):
             raise ValueError("slug must not start or end with a hyphen")
         return value

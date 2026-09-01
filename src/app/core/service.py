@@ -21,13 +21,17 @@ class TenantService:
         self._session = session
         self._repository = TenantRepository(session)
 
-    async def create_tenant(self, *, name: str, slug: str, is_active: bool = True) -> Tenant:
+    async def create_tenant(
+        self, *, name: str, slug: str, is_active: bool = True
+    ) -> Tenant:
         existing = await self._repository.get_by_slug(slug)
         if existing is not None:
             raise ConflictError(detail=f"Tenant slug '{slug}' already exists.")
 
         try:
-            return await self._repository.create(name=name, slug=slug, is_active=is_active)
+            return await self._repository.create(
+                name=name, slug=slug, is_active=is_active
+            )
         except IntegrityError as exc:
             await self._session.rollback()
             raise ConflictError(detail=f"Tenant slug '{slug}' already exists.") from exc

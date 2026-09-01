@@ -1,7 +1,7 @@
-from sqlalchemy.exc import SQLAlchemyError
+import redis.exceptions
 import structlog
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
@@ -11,7 +11,6 @@ from app.core.logging import setup_logging
 from app.core.middlewares.request_id import RequestIDMiddleware
 from app.core.redis import dispose_redis, wait_for_redis
 from app.core.routes import router as tenant_router
-import redis.exceptions
 
 logger = structlog.get_logger(__name__)
 
@@ -33,11 +32,11 @@ async def lifespan(app: FastAPI):
     yield
     try:
         await dispose_redis()
-    except Exception:
+    except redis.exceptions.RedisError:
         logger.warning("Redis shutdown failed gracefully.")
     try:
         await dispose_engine()
-    except Exception:
+    except SQLAlchemyError:
         logger.warning("Database engine shutdown failed gracefully.")
     logger.info("Shutting down the application...")
 

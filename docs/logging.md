@@ -19,15 +19,16 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
+
 async def my_business_logic(user_id: int):
     # Basic logging
     logger.info("processing_user", user_id=user_id)
-    
+
     try:
         # DO NOT use string interpolation for data!
         # Wrong: logger.error(f"Failed to process user {user_id}: {exc}")
-        
-        # Right: Pass data as kwargs. 
+
+        # Right: Pass data as kwargs.
         # If logging an exception, use logger.exception to automatically include the traceback
         raise ValueError("Database timeout")
     except ValueError as e:

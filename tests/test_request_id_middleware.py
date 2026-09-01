@@ -100,7 +100,9 @@ class TestInboundRequestID:
         request_ids = {e.get("request_id") for e in structlog_capture.entries}
         assert self.CUSTOM_ID in request_ids
 
-    def test_empty_x_request_id_falls_back_to_generated_uuid(self, client: TestClient) -> None:
+    def test_empty_x_request_id_falls_back_to_generated_uuid(
+        self, client: TestClient
+    ) -> None:
         resp = client.get("/__test__/ok", headers={"X-Request-ID": ""})
         req_id = resp.headers["X-Request-ID"]
         assert req_id != ""
@@ -132,7 +134,12 @@ class TestRequestIDPropagatedToLogs:
         resp = client.get("/__test__/log")
         expected_id = resp.headers["X-Request-ID"]
 
-        app_lines = [l for l in structlog_capture.entries if l.get("event") in ("route_log_1", "route_log_2", "request_started", "request_finished")]
+        app_lines = [
+            l
+            for l in structlog_capture.entries
+            if l.get("event")
+            in ("route_log_1", "route_log_2", "request_started", "request_finished")
+        ]
         assert app_lines, "Expected at least one structured log line from the app"
 
         for line in app_lines:
@@ -157,7 +164,12 @@ class TestRequestIDPropagatedToLogs:
     ) -> None:
         client.get("/__test__/ok")
         finished = next(
-            (e for e in structlog_capture.entries if e.get("event") == "request_finished"), None
+            (
+                e
+                for e in structlog_capture.entries
+                if e.get("event") == "request_finished"
+            ),
+            None,
         )
         assert finished is not None
         assert "status_code" in finished
@@ -187,13 +199,13 @@ class TestContextClearing:
         self, client: TestClient, structlog_capture: LogCapture
     ) -> None:
         id1 = client.get("/__test__/ok").headers["X-Request-ID"]
-        
+
         # Clear the capture to only see the second request
         structlog_capture.entries.clear()
-        
+
         id2 = client.get("/__test__/ok").headers["X-Request-ID"]
         ids_in_logs = {e.get("request_id") for e in structlog_capture.entries}
-        
+
         assert id1 not in ids_in_logs
         assert id2 in ids_in_logs
 
@@ -233,26 +245,35 @@ class TestConcurrentRequests:
 
         asyncio.run(_run())
 
-        ids_per_line = [e.get("request_id") for e in structlog_capture.entries if "request_id" in e]
+        ids_per_line = [
+            e.get("request_id") for e in structlog_capture.entries if "request_id" in e
+        ]
 
         assert FIXED_ID_A in ids_per_line
         assert FIXED_ID_B in ids_per_line
 
-        unexpected = {rid for rid in ids_per_line if rid not in (FIXED_ID_A, FIXED_ID_B)}
+        unexpected = {
+            rid for rid in ids_per_line if rid not in (FIXED_ID_A, FIXED_ID_B)
+        }
         assert not unexpected, f"Unexpected request_ids in log: {unexpected}"
 
 
 class TestStructuredJSON:
-    # Removed test_log_output_is_valid_json since we are capturing pure dicts now 
+    # Removed test_log_output_is_valid_json since we are capturing pure dicts now
     # instead of asserting on how the stdout renderer formats it.
-    
+
     def test_log_line_contains_expected_fields(
         self, client: TestClient, structlog_capture: LogCapture
     ) -> None:
         client.get("/__test__/ok")
-        app_lines = [e for e in structlog_capture.entries if e.get("event") in ("request_started", "request_finished", "route_handler_executed")]
+        app_lines = [
+            e
+            for e in structlog_capture.entries
+            if e.get("event")
+            in ("request_started", "request_finished", "route_handler_executed")
+        ]
         assert app_lines, "No log output from app"
-        
+
         first = app_lines[0]
         for field in ("event", "level", "timestamp", "request_id"):
             assert field in first, f"Missing field '{field}' in log line: {first}"
@@ -272,7 +293,9 @@ class TestLogLevel:
         events = [e.get("event") for e in structlog_capture.entries]
         assert "debug_event" in events
 
-    def test_warning_level_suppresses_info_lines(self, capsys: pytest.CaptureFixture) -> None:
+    def test_warning_level_suppresses_info_lines(
+        self, capsys: pytest.CaptureFixture
+    ) -> None:
         setup_logging("WARNING")
         logger = structlog.get_logger(__name__)
         logger.info("should_be_suppressed")
@@ -281,7 +304,9 @@ class TestLogLevel:
         assert "should_be_suppressed" not in raw
         assert "should_appear" in raw
 
-    def test_error_level_suppresses_warning(self, capsys: pytest.CaptureFixture) -> None:
+    def test_error_level_suppresses_warning(
+        self, capsys: pytest.CaptureFixture
+    ) -> None:
         setup_logging("ERROR")
         logger = structlog.get_logger(__name__)
         logger.warning("suppressed_warning")
@@ -292,9 +317,14 @@ class TestLogLevel:
 
 
 class TestNoSecretsInLogs:
-    def test_database_url_password_not_in_logs(self, structlog_capture: LogCapture) -> None:
+    def test_database_url_password_not_in_logs(
+        self, structlog_capture: LogCapture
+    ) -> None:
         logger = structlog.get_logger(__name__)
-        logger.info("db_connected", url="postgresql+asyncpg://admin:s3cr3t_p4ssw0rd@localhost/db")
+        logger.info(
+            "db_connected",
+            url="postgresql+asyncpg://admin:s3cr3t_p4ssw0rd@localhost/db",
+        )
         events = structlog_capture.entries
         assert len(events) == 1
         # Since the url field has the word 'url', let's test a key that contains the word 'password' or direct sensitive values
@@ -306,21 +336,20 @@ class TestNoSecretsInLogs:
 
     def test_auth_header_not_in_logs(self, structlog_capture: LogCapture) -> None:
         logger = structlog.get_logger(__name__)
-        logger.info("request_headers", headers={"Authorization": "Bearer super-secret-token"})
+        logger.info(
+            "request_headers", headers={"Authorization": "Bearer super-secret-token"}
+        )
         for entry in structlog_capture.entries:
             assert "super-secret-token" not in str(entry)
-            
+
     def test_recursive_redaction(self, structlog_capture: LogCapture) -> None:
         logger = structlog.get_logger(__name__)
         nested_data = {
-            "user": {
-                "name": "John Doe",
-                "password": "my_secret_password"
-            },
-            "tokens": ["token123", {"access_token": "bearer-token"}]
+            "user": {"name": "John Doe", "password": "my_secret_password"},
+            "tokens": ["token123", {"access_token": "bearer-token"}],
         }
         logger.info("user_login", data=nested_data)
-        
+
         events = structlog_capture.entries
         assert len(events) == 1
         event = events[0]

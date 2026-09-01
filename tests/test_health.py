@@ -65,7 +65,7 @@ def test_readyz_is_503_when_db_is_down(
         "status": "unavailable",
         "message": "Service dependencies unhealthy",
         "db": "unavailable",
-        "redis": "ok"
+        "redis": "ok",
     }
 
 
@@ -88,5 +88,5 @@ def test_readyz_is_503_when_redis_is_down(
         "status": "unavailable",
         "message": "Service dependencies unhealthy",
         "db": "ok",
-        "redis": "unavailable"
+        "redis": "unavailable",
     }

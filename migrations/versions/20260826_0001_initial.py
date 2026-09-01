@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-08-26
 
 """
+
 from collections.abc import Sequence
 
 # revision identifiers, used by Alembic.

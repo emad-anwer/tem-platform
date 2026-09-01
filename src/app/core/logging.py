@@ -3,17 +3,31 @@ import logging
 import structlog
 
 SENSITIVE_KEYS = {
-    "password", "passwd", "pwd",
-    "token", "access_token", "refresh_token", "id_token",
-    "authorization", "auth",
-    "api_key", "apikey", "x-api-key",
-    "secret", "client_secret",
-    "jwt", "masterkey", "master_key",
-    "credentials", "private_key",
-    "cookie", "set-cookie",
+    "password",
+    "passwd",
+    "pwd",
+    "token",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "authorization",
+    "auth",
+    "api_key",
+    "apikey",
+    "x-api-key",
+    "secret",
+    "client_secret",
+    "jwt",
+    "masterkey",
+    "master_key",
+    "credentials",
+    "private_key",
+    "cookie",
+    "set-cookie",
 }
 
 REDACTED = "***REDACTED***"
+
 
 def redact_processor(logger, method_name, event_dict):
     def redact(data):
@@ -25,7 +39,9 @@ def redact_processor(logger, method_name, event_dict):
         elif isinstance(data, list):
             return [redact(item) for item in data]
         return data
+
     return redact(event_dict)
+
 
 def setup_logging(level: str) -> None:
     logging.basicConfig(level=level, format="%(message)s")
@@ -35,7 +51,7 @@ def setup_logging(level: str) -> None:
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,   
+            structlog.processors.format_exc_info,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             redact_processor,
             structlog.processors.JSONRenderer(sort_keys=True),

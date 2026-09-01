@@ -77,7 +77,10 @@ async def list_tenants(
 @router.get(
     "/tenants/{tenant_id}",
     response_model=TenantDocument,
-    responses={200: {"description": "Tenant retrieved"}, 404: {"description": "Tenant not found"}},
+    responses={
+        200: {"description": "Tenant retrieved"},
+        404: {"description": "Tenant not found"},
+    },
 )
 async def get_tenant(
     tenant_id: UUID,
