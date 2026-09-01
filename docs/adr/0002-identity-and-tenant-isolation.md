@@ -175,10 +175,12 @@ class Principal:
     This is the ONLY object the rest of the codebase sees.
     It does not leak token format, IdP vendor, or claim names.
     """
-    user_id: str           # Zitadel user ID (sub claim), opaque to consumers
-    tenant_id: uuid.UUID   # OUR tenant UUID, not the Zitadel org ID
-    role: Role             # owner | analyst | viewer
+
+    user_id: str  # Zitadel user ID (sub claim), opaque to consumers
+    tenant_id: uuid.UUID  # OUR tenant UUID, not the Zitadel org ID
+    role: Role  # owner | analyst | viewer
     # Future: scopes, permissions, session_id
+
 
 class Role(enum.StrEnum):
     OWNER = "owner"

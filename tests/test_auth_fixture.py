@@ -15,15 +15,14 @@ from __future__ import annotations
 
 import httpx
 import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
-from jwt.algorithms import RSAAlgorithm
-
-from tests.auth_fixtures import (
+from auth_fixtures import (
     FIXTURE_ISSUER,
     FIXTURE_KID,
     FIXTURE_PROJECT_ID,
     make_token,
 )
+from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt.algorithms import RSAAlgorithm
 
 
 def test_rsa_keypair_and_jwks_fixture(rsa_private_key, fixture_jwks):

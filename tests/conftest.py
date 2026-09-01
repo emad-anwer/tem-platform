@@ -3,15 +3,15 @@ import os
 import pytest
 import pytest_asyncio
 import respx
+from auth_fixtures import FIXTURE_ISSUER
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.db import get_db
 from app.core.main import create_app
 from app.core.models import Base
-from tests.auth_fixtures import FIXTURE_ISSUER
 
-pytest_plugins = ["tests.auth_fixtures"]
+pytest_plugins = ["auth_fixtures"]
 
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 
