@@ -3,7 +3,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import Depends
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +12,7 @@ from app.core.models import Tenant
 from app.core.repository import TenantRepository
 
 
-async def get_tenant_service(session: AsyncSession = Depends(get_db)) -> "TenantService":
+async def get_tenant_service(session: AsyncSession = Depends(get_db)) -> TenantService:
     return TenantService(session)
 
 

@@ -1,9 +1,7 @@
-import os
-from pathlib import Path
 import re
 import socket
 import ssl
-import subprocess
+from pathlib import Path
 
 import pytest
 

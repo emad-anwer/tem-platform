@@ -1,6 +1,5 @@
 import asyncio
 import uuid
-import json
 
 import pytest
 import structlog
@@ -8,7 +7,7 @@ from fastapi import APIRouter, FastAPI
 from starlette.testclient import TestClient
 from structlog.testing import LogCapture
 
-from app.core.logging import setup_logging, redact_processor
+from app.core.logging import redact_processor, setup_logging
 from app.core.middlewares.request_id import RequestIDMiddleware
 
 

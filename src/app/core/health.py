@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
-
 from app.core.db import check_db_connection
 from app.core.redis import check_redis_connection
 
