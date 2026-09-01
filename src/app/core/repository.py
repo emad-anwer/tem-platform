@@ -31,8 +31,20 @@ class TenantRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, *, name: str, slug: str, is_active: bool = True) -> Tenant:
-        tenant = Tenant(name=name, slug=slug, is_active=is_active)
+    async def create(
+        self,
+        *,
+        name: str,
+        slug: str,
+        is_active: bool = True,
+        zitadel_org_id: str | None = None,
+    ) -> Tenant:
+        tenant = Tenant(
+            name=name,
+            slug=slug,
+            is_active=is_active,
+            zitadel_org_id=zitadel_org_id,
+        )
         self._session.add(tenant)
         await self._session.commit()
         await self._session.refresh(tenant)
@@ -41,6 +53,12 @@ class TenantRepository:
     async def get_by_id(self, tenant_id: UUID) -> Tenant | None:
         result = await self._session.execute(
             select(Tenant).where(Tenant.id == tenant_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_zitadel_org_id(self, zitadel_org_id: str) -> Tenant | None:
+        result = await self._session.execute(
+            select(Tenant).where(Tenant.zitadel_org_id == zitadel_org_id)
         )
         return result.scalar_one_or_none()
 
