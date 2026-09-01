@@ -15,6 +15,50 @@ here exists to satisfy it.
 
 ---
 
+## 0. What is Zitadel, and why are we doing any of this?
+
+If you've never touched an identity provider (IdP) before, here's the shape of the whole system
+before you dive into steps — skip this section if you already know OIDC/JWT.
+
+**The problem:** our app needs to know *who* is calling it and *what tenant/role* they belong to,
+without trusting the caller to just tell us ("I'm the admin of tenant X, promise"). The standard
+way to solve this is to hand that job to a dedicated identity provider — Zitadel, in our case,
+instead of Auth0/Okta/Cognito — that handles login, issues a cryptographically signed token, and
+lets our app verify that token without ever talking to Zitadel again per-request.
+
+**The flow, end to end:**
+
+1. A user logs in **against Zitadel** (username/password, not our app) — either through Zitadel's
+   own login pages, or via a machine-to-machine client secret for service accounts.
+2. Zitadel hands back an **access token** — a JWT (JSON Web Token), which is just a signed blob of
+   claims (facts) about who logged in: their user ID, their tenant, their role, when it expires.
+3. The caller sends that JWT to **our app** (`Authorization: Bearer <token>`).
+4. Our app verifies the JWT's signature using Zitadel's public keys (the **JWKS**, fetched once
+   and cached — this is W2-04's job, not this doc's), then reads the claims out of it to decide
+   *who this is* and *what they're allowed to do* (W2-06/07/08's job).
+
+**Why this doc exists:** step 1 and 2 need a running Zitadel with a project/roles/app configured
+before anyone can even get a token to test steps 3–4 against. This doc gets you a working Zitadel
+and a real token in hand. It does **not** build the "our app checks the token" half — that's
+already split across other W2 issues (see the intro above).
+
+**A few terms you'll see everywhere below, in plain language:**
+
+| Term | Means, in this context |
+|---|---|
+| **OIDC** | The overall protocol (OpenID Connect) Zitadel speaks for login + tokens. Think "the rulebook." |
+| **JWT** | The token format: three base64 chunks (`header.payload.signature`) — readable without a password, but tamper-proof because of the signature. The opposite is an **opaque token**, a random string you can't read at all, meaningless without asking the IdP "what is this?" |
+| **Claim** | One fact inside the JWT payload, e.g. `"iss": "http://zitadel:8080"`. ADR-0002 requires specific claims to be present — see the checklist in §4. |
+| **Issuer (`iss`)** | Which Zitadel instance/URL issued this token. Our app checks this matches what it expects, or it rejects the token outright. |
+| **Audience (`aud`)** | Which app(s) this token is valid for. Prevents a token meant for App A being replayed against App B. |
+| **JWKS** | "JSON Web Key Set" — Zitadel's *public* signing keys, published at a URL, used to verify a JWT's signature without ever contacting Zitadel per-request. |
+| **`kid`** | "Key ID" — tells you *which* key in the JWKS was used to sign this particular token (Zitadel rotates keys over time). |
+| **Scope** | What you're asking the IdP for permission to see, requested during login (e.g. `openid`, or the role-claim scope in §4). Ask for the wrong/missing scope and the claim you wanted just won't show up — not an error, just silently absent. |
+| **PKCE** | A security add-on to the login flow (used by "public" clients like browser/mobile apps that can't safely hold a secret). You'll see `code_challenge`/`code_verifier` params because of it — you don't need to understand the cryptography, just that both values must match between the start and end of the flow. |
+| **Project / Role / Application** | Zitadel's own vocabulary — see the intro of §3 for what each one means before you start clicking. |
+
+---
+
 ## 1. Quickstart
 
 ```bash
@@ -76,7 +120,17 @@ same thing for a single command and is how this doc's evidence was generated.
 
 Zitadel needs a **project** with the three ADR-0002 roles and at least one **application**
 before any client can get a usable token. These are the manual steps (there is no automation
-for this yet — that's your W2-05 task):
+for this yet — that's your W2-05 task).
+
+**The mental model, before you click anything:** a **project** is just our app's namespace
+inside Zitadel — the container everything else below lives in. A **role** is a named permission
+bucket (`owner`/`analyst`/`viewer`) that starts out meaning nothing; it only becomes real once you
+(a) turn on the "put roles in the token" switches (steps 4 and 5 below) and (b) actually **grant**
+a specific role to a specific user (step 6) — skipping either one means the roles claim shows up
+empty, with no error to tell you why. An **application** is a registered "thing allowed to ask
+Zitadel for a token" — a browser app, a native app, a service account, etc. — each with its own
+client ID and its own settings for *how* it's allowed to log in and *what* its tokens look like.
+Do the steps in order; later steps assume the project/roles from earlier ones already exist.
 
 1. Log into the console as the bootstrap admin.
 2. **Projects → New Project.** Name it (e.g. `tem-platform`). Note the **Project ID** shown on
@@ -278,3 +332,27 @@ without reading this doc.
   `/etc/hosts` entry. A real deployment needs a real DNS name matching a real TLS certificate.
 - The v3.x single-binary/embedded-login-UI topology (§5) is itself a dev-simplicity choice, not
   necessarily what a production Zitadel deployment should run.
+
+---
+
+## 9. Stuck? Match your error here
+
+Skim this before asking for help — most first-time problems are one of these, and they're all
+already solved above.
+
+| You see... | Cause | Fix |
+|---|---|---|
+| `Instance not found` / `unable to set instance using origin` (404) hitting `localhost:8080` or the raw IP | The **issuer trap** — see §2 | Add `127.0.0.1 zitadel` to `/etc/hosts`, then use `http://zitadel:8080/...`, never `localhost` or `127.0.0.1` directly |
+| Roles claim is missing/empty from a token you decoded | One of the three role-wiring steps in §3 was skipped (project-level assertion, app-level assertion, or the actual user grant) | Re-check §3 steps 4, 5, and 6 — all three are required, and Zitadel gives no error if you miss one |
+| Roles claim is missing specifically on a **machine user / client_credentials** token, and you've triple-checked §3 | This isn't a config mistake — it's a real limitation of this Zitadel version | See §7 finding 1. Don't spend more time chasing a config fix; it doesn't exist here |
+| Token is a random opaque string, not three dot-separated base64 chunks | Application's Token Type wasn't set to JWT (it's opaque by default) | §3 step 5, "Token Type: JWT"; see §7 finding 3 |
+| `GET {issuer}/.well-known/jwks.json` returns 404 | ADR-0002 states the wrong path | Use `{issuer}/oauth/v2/keys` instead (or read `jwks_uri` from the discovery doc); see §7 finding 2 |
+| Zitadel container stuck restarting / crash loop after adding first-boot env vars | Likely the machine+PAT bootstrap bug in §6 | `docker compose down -v` to reset, then avoid `ZITADEL_FIRSTINSTANCE_ORG_MACHINE_*`/`PATPATH`; create service users via the Management API instead (§3 step 7) |
+| Zitadel fails to start after editing `OIDCSETTINGS` env vars | Only some of the four duration vars were set | All four (`ACCESSTOKENLIFETIME`, `IDTOKENLIFETIME`, `REFRESHTOKENIDLEEXPIRATION`, `REFRESHTOKENEXPIRATION`) must be set together, or none — see §6 |
+| `docker compose exec zitadel sh` (or `bash`/`ls`) fails: "executable file not found" | This image has no shell, it's a single binary | Use `docker cp` to pull files out; use `/app/zitadel <subcommand>` instead of shelling in — see §6 |
+| A requested claim/scope just silently doesn't show up, no error anywhere | Wrong or missing OIDC **scope** requested at login (see the glossary in §0) | Double-check the `scope=` parameter in your authorize URL includes everything the checklist in §4 needs |
+
+Still stuck after checking this table? Paste your decoded token (`just zitadel-decode <token>`,
+redact nothing sensitive lives in header/payload of a *test* token) and the exact request you made
+into your PR/question — "it doesn't work" with no evidence is much harder to help with than a
+concrete decoded payload.
