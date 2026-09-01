@@ -20,3 +20,6 @@ Dockerfile*
 compose.yaml
 docker-compose*
 .just
+
+!compose.yaml
+!docs/**
