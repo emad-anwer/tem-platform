@@ -1,9 +1,7 @@
-import os
-from pathlib import Path
 import re
 import socket
 import ssl
-import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -46,9 +44,9 @@ def test_compose_profiles_isolation_for_lab_targets() -> None:
         core_block = (
             content[start_idx:end_idx] if end_idx != -1 else content[start_idx:]
         )
-        assert (
-            'profiles: ["lab"]' not in core_block
-        ), f"Core service {core} must not be in lab profile"
+        assert 'profiles: ["lab"]' not in core_block, (
+            f"Core service {core} must not be in lab profile"
+        )
 
 
 def test_compose_lab_security_hardening_and_read_only_mounts() -> None:
@@ -56,9 +54,9 @@ def test_compose_lab_security_hardening_and_read_only_mounts() -> None:
     content = COMPOSE_FILE.read_text(encoding="utf-8")
 
     # Check security_opt
-    assert (
-        content.count("no-new-privileges:true") >= 6
-    ), "Security opt must be on core and lab services"
+    assert content.count("no-new-privileges:true") >= 6, (
+        "Security opt must be on core and lab services"
+    )
 
     # Verify lab volumes are mounted read-only
     lab_mounts = re.findall(r"\./lab/[^:]+:[^:]+:([a-z]+)", content)
@@ -158,13 +156,15 @@ def test_lab_tls_san_live_probe() -> None:
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    with socket.create_connection(("localhost", 8443), timeout=2.0) as sock:
-        with ctx.wrap_socket(sock, server_hostname="target4.lab.local") as ssock:
-            cert_der = ssock.getpeercert(binary_form=True)
-            assert cert_der is not None, "Failed to retrieve binary peer certificate"
+    with (
+        socket.create_connection(("localhost", 8443), timeout=2.0) as sock,
+        ctx.wrap_socket(sock, server_hostname="target4.lab.local") as ssock,
+    ):
+        cert_der = ssock.getpeercert(binary_form=True)
+        assert cert_der is not None, "Failed to retrieve binary peer certificate"
 
-            # Parse certificate via OpenSSL or ssl
-            cipher = ssock.cipher()
-            assert cipher is not None
-            protocol = ssock.version()
-            assert protocol in ("TLSv1.2", "TLSv1.3")
+        # Parse certificate via OpenSSL or ssl
+        cipher = ssock.cipher()
+        assert cipher is not None
+        protocol = ssock.version()
+        assert protocol in ("TLSv1.2", "TLSv1.3")

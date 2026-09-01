@@ -1,9 +1,7 @@
+import redis.exceptions
 import structlog
-
-from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi import FastAPI
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
@@ -21,51 +19,51 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up the application...")
     try:
         await wait_for_db()
-    except Exception:
+    except SQLAlchemyError:
         logger.warning(
             "Database startup check failed; continuing without a live DB connection."
         )
     try:
         await wait_for_redis()
-    except Exception:
+    except redis.exceptions.RedisError:
         logger.warning(
             "Redis startup check failed; continuing without cache/queue support."
         )
     yield
     try:
         await dispose_redis()
-    except Exception:
+    except redis.exceptions.RedisError:
         logger.warning("Redis shutdown failed gracefully.")
     try:
         await dispose_engine()
-    except Exception:
+    except SQLAlchemyError:
         logger.warning("Database engine shutdown failed gracefully.")
     logger.info("Shutting down the application...")
 
 
-def _problem_response(
-    request: Request,
-    status_code: int,
-    title: str,
-    detail: str,
-    problem_type: str,
-    *,
-    errors: list[dict[str, str]] | None = None,
-) -> JSONResponse:
-    payload = build_problem_details(
-        request=request,
-        status=status_code,
-        title=title,
-        detail=detail,
-        problem_type=problem_type,
-        errors=errors,
-    )
+# def _problem_response(
+#     request: Request,
+#     status_code: int,
+#     title: str,
+#     detail: str,
+#     problem_type: str,
+#     *,
+#     errors: list[dict[str, str]] | None = None,
+# ) -> JSONResponse:
+#     payload = build_problem_details(
+#         request=request,
+#         status=status_code,
+#         title=title,
+#         detail=detail,
+#         problem_type=problem_type,
+#         errors=errors,
+#     )
 
-    return JSONResponse(
-        status_code=status_code,
-        content=payload,
-        media_type="application/problem+json",
-    )
+#     return JSONResponse(
+#         status_code=status_code,
+#         content=payload,
+#         media_type="application/problem+json",
+#     )
 
 
 def create_app() -> FastAPI:
