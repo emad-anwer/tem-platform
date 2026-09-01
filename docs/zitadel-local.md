@@ -102,14 +102,37 @@ the console UI, `/ui/login/*`) needs the `Host: zitadel` match.
 
 **Fix, one time, on your host:**
 
+**macOS / Linux** — add the line to `/etc/hosts`:
+
 ```bash
 echo "127.0.0.1 zitadel" | sudo tee -a /etc/hosts
 ```
 
+**Windows** — the hosts file is `C:\Windows\System32\drivers\etc\hosts`, and editing it needs an
+elevated (Run as Administrator) prompt. Either of these, from an **Administrator** PowerShell:
+
+```powershell
+Add-Content -Path C:\Windows\System32\drivers\etc\hosts -Value "127.0.0.1 zitadel"
+```
+
+or, from an **Administrator** Command Prompt:
+
+```cmd
+echo 127.0.0.1 zitadel >> C:\Windows\System32\drivers\etc\hosts
+```
+
+(A regular, non-elevated prompt will fail silently or with "Access is denied" — right-click
+PowerShell/cmd and choose "Run as administrator" first. If you're on WSL2, edit the Windows hosts
+file above, not the one inside the WSL Linux filesystem — Docker Desktop's ports are reachable
+from the Windows side, which is what your browser uses.)
+
 After that, `http://zitadel:8080/...` works from your host exactly like it works from inside
 any container on the Compose network (Docker's embedded DNS already resolves `zitadel` there —
 no `/etc/hosts` edit needed *inside* containers, only on the host). Everything in this doc and
-in the `just zitadel-*` recipes assumes this entry exists.
+in the `just zitadel-*` recipes assumes this entry exists. **Once it's there, always use
+`http://zitadel:8080/...` — never `http://localhost:8080/...` or the raw `127.0.0.1:8080`, both
+of which will 404 with `Instance not found` regardless of the hosts entry, since Zitadel checks
+the `Host` header of the request, not which IP it resolved to.**
 
 If you'd rather not touch `/etc/hosts`, `curl --resolve zitadel:8080:127.0.0.1 ...` does the
 same thing for a single command and is how this doc's evidence was generated.
