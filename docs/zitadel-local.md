@@ -3,9 +3,8 @@
 **Status:** Active · **Module:** Identity Infra Prework (W2-05) · **Author:** Mentor (infra/docs only, no application code)
 
 This is the base Zitadel Compose service and console walkthrough for **W2-05**. It gets you
-from `git clone` to holding a real, decoded access token that satisfies ADR-0002. It does
-**not** include the idempotent bootstrap script or `just zitadel-bootstrap` recipe — that
-automation is the actual W2-05 deliverable and is intentionally left for you to build. What's
+from `git clone` to holding a real, decoded access token that satisfies ADR-0002. It includes
+the idempotent W2-05 bootstrap script and the `just zitadel-bootstrap` recipe. What's
 here is meant to make that task an ordinary one instead of a science project: the compose
 service works, the console steps are spelled out, and every trap we hit while proving it out is
 documented below so you don't lose a day rediscovering them.
@@ -96,7 +95,12 @@ granted roles against.**
 git clone <repo> && cd tem-platform
 cp .env.example .env          # fill in ZITADEL_PROJECT_ID after step 3 below
 just up
+just zitadel-bootstrap
 ```
+
+The bootstrap reads `ZITADEL_DEV_USERNAME`, `ZITADEL_DEV_EMAIL`, and
+`ZITADEL_DEV_PASSWORD` from `.env`. It creates missing resources, skips existing roles, and
+reconciles an existing user grant to all ADR-0002 roles, so running it repeatedly is safe.
 
 Cold start (`docker compose down -v && up -d`, empty volumes) reaches a healthy `zitadel`
 container in **~20–30 seconds** on a laptop. `zitadel-db` and `zitadel` add roughly **~200 MB**
@@ -291,8 +295,12 @@ do).
 
 ## 6. First-boot failure modes we actually hit
 
-**Machine user + PAT auto-bootstrap crash loop.** We tried adding
-`ZITADEL_FIRSTINSTANCE_ORG_MACHINE_*` and `ZITADEL_FIRSTINSTANCE_PATPATH` env vars to
+**Machine user + PAT auto-bootstrap.** Compose configures the first-instance IAM Owner machine
+user and writes its PAT to the ignored local `.zitadel-bootstrap/admin.pat` file. The bootstrap
+script consumes that management credential. The separate Login Client PAT path is not used on
+this pinned legacy Login V1 setup.
+
+The generic path was tried to
 auto-provision a machine user + personal access token at first boot, for fully headless testing.
 With an `ORG_MACHINE_PAT_EXPIRATIONDATE` set, the `03_default_instance` setup migration failed
 outright:
@@ -307,7 +315,8 @@ automatic restarts, recoverable only with `docker compose down -v` (full volume 
 cause not fully isolated (possibly an ordering/idempotency bug in this Zitadel version's
 first-instance machine+PAT path specifically, since the human-only bootstrap path is solid). We
 abandoned this approach as unnecessary scope creep for this deliverable — it is **not** in
-`compose.yaml`. If W2-05's bootstrap script wants a fully headless machine user at first boot,
+`compose.yaml`. If an existing local volume was initialized with different first-instance
+settings, reset it once with `docker compose down -v` before retrying.
 budget time to either debug this further or avoid `FirstInstance.Org.Machine` entirely and
 create the service user via the Management API instead (which works reliably, see §3 step 7).
 

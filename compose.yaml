@@ -13,6 +13,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      zitadel:
+        condition: service_healthy
     command: ["uvicorn", "app.core.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     security_opt:
       - no-new-privileges:true
@@ -25,6 +27,9 @@ services:
             - .venv/
         - action: rebuild
           path: ./pyproject.toml
+    volumes:
+      - ./.zitadel-bootstrap:/run/zitadel-bootstrap
+      - ./scripts:/app/scripts:ro
 
   postgres:
     image: postgres:16-alpine
@@ -112,6 +117,10 @@ services:
     # separate Next.js login-UI topology that ships by default from v4 on.
     # See docs/zitadel-local.md for the reasoning.
     image: ghcr.io/zitadel/zitadel:v3.4.15
+    # The first-instance setup writes the Login Client PAT into the mounted
+    # bootstrap volume. Run as root so this works on a fresh named volume;
+    # the token remains available only to the two local Compose services.
+    user: "0"
     # --tlsMode disabled (below) is dev-only: nothing here terminates TLS, so
     # this must never run reachable from outside your own machine. A real
     # deployment puts a TLS-terminating proxy in front of Zitadel and drops
@@ -147,6 +156,15 @@ services:
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: ${ZITADEL_ADMIN_EMAIL}
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: "true"
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      # First-instance IAM Owner service user for bootstrap automation.
+      # Zitadel writes its PAT into the ignored local directory below so the
+      # app container can read it. This is local-only identity bootstrap; do not
+      # commit or expose the token.
+      ZITADEL_FIRSTINSTANCE_PATPATH: /run/zitadel-bootstrap/admin.pat
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: zitadel-bootstrap
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Zitadel Bootstrap
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINEKEY_TYPE: "1"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
       # ADR-0002 requires 15-minute access tokens; Zitadel's own default is
       # 12h. This is instance-level (applies org/project-wide, not settable
       # via a single app), and the four durations below must all be set
@@ -169,6 +187,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    volumes:
+      - ./.zitadel-bootstrap:/run/zitadel-bootstrap
 
   # ----------------------------------------------------------------------
   # Target Lab Services (Isolated under the 'lab' profile)

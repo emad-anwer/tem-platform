@@ -75,6 +75,9 @@ zitadel-decode token:
     print(json.dumps(json.loads(b64d(header)), indent=2))
     print(json.dumps(json.loads(b64d(payload)), indent=2))
 
+zitadel-bootstrap:
+    docker compose exec app python scripts/zitadel_bootstrap.py
+
 # run database migrations
 migrate:
     docker compose exec app alembic upgrade head
