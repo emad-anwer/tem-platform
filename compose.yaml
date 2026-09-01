@@ -79,6 +79,91 @@ services:
       - no-new-privileges:true
 
   # ----------------------------------------------------------------------
+  # Identity (Zitadel) — local IdP for ADR-0002
+  #
+  # Zitadel gets its own Postgres instance (zitadel-db), never the app's.
+  # Its schema is Zitadel's to migrate; ours must never touch it, and vice
+  # versa. See docs/zitadel-local.md for the full walkthrough, the issuer
+  # trap, and the console steps to create a project/roles/app.
+  # ----------------------------------------------------------------------
+
+  zitadel-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${ZITADEL_DB_USER}
+      POSTGRES_PASSWORD: ${ZITADEL_DB_PASSWORD}
+      POSTGRES_DB: ${ZITADEL_DB_NAME}
+    volumes:
+      - zitadel_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ZITADEL_DB_USER} -d ${ZITADEL_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  zitadel:
+    # Pinned, not :latest. v3.4.x is the pre-Login-V2 line: a single binary
+    # with the classic embedded /ui/console and /ui/login, so this stays a
+    # one-container identity service instead of pulling in the Traefik +
+    # separate Next.js login-UI topology that ships by default from v4 on.
+    # See docs/zitadel-local.md for the reasoning.
+    image: ghcr.io/zitadel/zitadel:v3.4.15
+    command: >
+      start-from-init
+      --masterkey ${ZITADEL_MASTERKEY}
+      --tlsMode disabled
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: zitadel-db
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: ${ZITADEL_DB_NAME}
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: ${ZITADEL_DB_USER}
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ZITADEL_DB_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: ${ZITADEL_DB_USER}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${ZITADEL_DB_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      # ZITADEL_EXTERNALDOMAIN is the compose service name, not "localhost".
+      # This IS the issuer trap fix — see docs/zitadel-local.md. Every
+      # container reaches Zitadel the same way a browser on the host does
+      # (after a one-line /etc/hosts entry), so `iss` never disagrees with
+      # itself depending on who's asking.
+      ZITADEL_EXTERNALDOMAIN: zitadel
+      ZITADEL_EXTERNALPORT: "8080"
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_TLS_ENABLED: "false"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_ADMIN_USERNAME}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: ${ZITADEL_ADMIN_EMAIL}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: "true"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      # ADR-0002 requires 15-minute access tokens; Zitadel's own default is
+      # 12h. This is instance-level (applies org/project-wide, not settable
+      # via a single app), and the four durations below must all be set
+      # together or Zitadel errors at boot. See docs/zitadel-local.md.
+      ZITADEL_DEFAULTINSTANCE_OIDCSETTINGS_ACCESSTOKENLIFETIME: 15m
+      ZITADEL_DEFAULTINSTANCE_OIDCSETTINGS_IDTOKENLIFETIME: 15m
+      ZITADEL_DEFAULTINSTANCE_OIDCSETTINGS_REFRESHTOKENIDLEEXPIRATION: 720h
+      ZITADEL_DEFAULTINSTANCE_OIDCSETTINGS_REFRESHTOKENEXPIRATION: 2160h
+    ports:
+      - "8080:8080"
+    depends_on:
+      zitadel-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # ----------------------------------------------------------------------
   # Target Lab Services (Isolated under the 'lab' profile)
   # Activated via: `just lab-up` (docker compose --profile lab up -d)
   # ----------------------------------------------------------------------
@@ -135,3 +220,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  zitadel_db_data:
