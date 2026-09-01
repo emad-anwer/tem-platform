@@ -37,6 +37,23 @@ lets our app verify that token without ever talking to Zitadel again per-request
    and cached — this is W2-04's job, not this doc's), then reads the claims out of it to decide
    *who this is* and *what they're allowed to do* (W2-06/07/08's job).
 
+Same thing, as a picture, with which issue owns each box (this PR only builds the Zitadel box —
+everything after "Our app receives request" is other people's Week 2 work, not built here):
+
+```mermaid
+flowchart TD
+    A["User or service logs in against Zitadel<br/>(username+password, or client_id+secret)"]
+    A --> B["Zitadel issues a JWT<br/>iss, aud, resourceowner, roles, exp"]
+    B -->|"Authorization: Bearer token"| C["Our app receives the request"]
+    C --> D["W2-04 Arwa: verify JWT<br/>fetch+cache JWKS, check kid/iss/aud/exp,<br/>map claims to a Principal"]
+    D -->|invalid or expired| E["401 + WWW-Authenticate"]
+    D -->|"Principal(subject, tenant_id, roles)"| F["W2-06 Tasneem: get_principal()<br/>request-scoped context"]
+    F --> G["W2-08 Arwa: require_role / require_permission<br/>checked at the route"]
+    G -->|role not allowed| H["403"]
+    G -->|role allowed| I["W2-07 Zyad: TenantScopedRepository<br/>filters every query by context tenant_id"]
+    I --> J["Response"]
+```
+
 **Why this doc exists:** step 1 and 2 need a running Zitadel with a project/roles/app configured
 before anyone can even get a token to test steps 3–4 against. This doc gets you a working Zitadel
 and a real token in hand. It does **not** build the "our app checks the token" half — that's
@@ -354,6 +371,20 @@ decoding a token and checking `exp - iat == 900`. Noting it here anyway because 
 default that's easy to silently miss if someone rebuilds this compose service from scratch
 without reading this doc.
 
+**5. Not a gap, but a naming collision worth heading off:** ADR-0002 §9 ("Machine access") says
+Zitadel service users for client_credentials auth are "decided now; implemented in Week 4." If
+you're on **W2-09** (tenant provisioning, this week, not Week 4), don't read that as a blocker —
+it isn't the same thing. §9 is about a machine caller authenticating *against our API* (CI
+pipelines, partner integrations) — that's genuinely Week 4. W2-09 instead needs a Zitadel service
+user with IAM-level permission to call **Zitadel's own management API** (`POST /orgs`) purely as
+an internal implementation detail of the tenant-provisioning endpoint; it never issues a token
+that reaches our API at all. That service account doesn't exist yet — creating it (with the right
+instance-level IAM role, e.g. an Org or IAM Manager grant) is part of W2-09's own scope, not
+something this PR set up. The service user created in §3 step 7 of this doc is a *third*, separate
+thing again: a project-scoped test account for exercising the client_credentials token shape
+(used to produce finding 1 in §7) — don't reuse it for W2-09's management API calls, it has no
+IAM permissions at the instance level.
+
 ---
 
 ## 8. Dev-only vs. production
@@ -389,7 +420,79 @@ already solved above.
 | `docker compose exec zitadel sh` (or `bash`/`ls`) fails: "executable file not found" | This image has no shell, it's a single binary | Use `docker cp` to pull files out; use `/app/zitadel <subcommand>` instead of shelling in — see §6 |
 | A requested claim/scope just silently doesn't show up, no error anywhere | Wrong or missing OIDC **scope** requested at login (see the glossary in §0) | Double-check the `scope=` parameter in your authorize URL includes everything the checklist in §4 needs |
 
-Still stuck after checking this table? Paste your decoded token (`just zitadel-decode <token>`,
-redact nothing sensitive lives in header/payload of a *test* token) and the exact request you made
-into your PR/question — "it doesn't work" with no evidence is much harder to help with than a
-concrete decoded payload.
+Still stuck after checking this table? Paste your decoded token (`just zitadel-decode <token>` —
+nothing sensitive lives in a *test* token's header/payload, so there's nothing to redact) and the
+exact request you made into your PR/question — "it doesn't work" with no evidence is much harder
+to help with than a concrete decoded payload.
+
+---
+
+## 10. Tenant provisioning (W2-09) and a code sketch — reference only, not the implementation
+
+**Not built here** — this is just background so W2-09 doesn't start from a blank page. Per
+ADR-0002, creating a tenant is a two-system, non-transactional operation:
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant API as Our API (W2-09, Tasneem)
+    participant Zitadel as Zitadel management API
+    participant DB as our tenants table
+
+    Caller->>API: POST /api/v1/tenants (idempotency key)
+    API->>Zitadel: create Org, as an IAM-privileged service user (see §7 finding 5)
+    Zitadel-->>API: org_id
+    API->>DB: insert tenant row (tenant_id = org_id)
+    alt DB insert fails
+        API-->>Caller: 5xx — org is left orphaned, logged at error level (ADR-0002 scope fence: no compensating delete)
+    else DB insert succeeds
+        API-->>Caller: 201, tenant created
+    end
+```
+
+**A code sketch — illustrative only, not real, not what W2-04/W2-06 should ship.** This exists to
+show how the pieces from the diagram in §0 fit together in code, using the exact claim names
+ADR-0002 requires. The real implementation belongs to those issues, will have real error handling,
+and may look nothing like this:
+
+```python
+# Illustrative only. NOT the real implementation — W2-04 (verification) and
+# W2-06 (the Principal/dependency) own that. This just shows the shape.
+
+import jwt  # PyJWT
+from jwt import PyJWKClient
+
+ISSUER = "http://zitadel:8080"        # ZITADEL_ISSUER
+AUDIENCE = "<ZITADEL_PROJECT_ID>"      # ZITADEL_PROJECT_ID
+JWKS_URL = f"{ISSUER}/oauth/v2/keys"   # NOT /.well-known/jwks.json — see §7 finding 2
+
+jwks_client = PyJWKClient(JWKS_URL)    # W2-04: cache this; don't refetch every request
+
+
+class Principal:
+    def __init__(self, subject: str, tenant_id: str, roles: set[str]) -> None:
+        self.subject = subject
+        self.tenant_id = tenant_id
+        self.roles = roles
+
+
+def verify_and_build_principal(token: str) -> Principal:
+    signing_key = jwks_client.get_signing_key_from_jwt(token)  # matches by `kid`
+    claims = jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["RS256"],   # pin the algorithm — never trust `alg` from the token itself
+        issuer=ISSUER,
+        audience=AUDIENCE,
+    )
+
+    # ADR-0002: tenant_id comes from exactly one place, never a URL/header/query param.
+    tenant_id = claims["urn:zitadel:iam:user:resourceowner:id"]
+    roles = set(claims.get("urn:zitadel:iam:org:project:roles", {}).keys())
+
+    return Principal(subject=claims["sub"], tenant_id=tenant_id, roles=roles)
+```
+
+The gap in §7 finding 1 shows up exactly here: for a client_credentials token, `claims.get(...roles...)`
+returns `{}` unconditionally — W2-04/W2-06 need to decide what a roleless machine `Principal`
+means before this line ships for real.
