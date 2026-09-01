@@ -28,8 +28,8 @@ env:
   REDIS_URL: redis://:unused-in-ci@localhost:6379/0
 
 jobs:
-  lint:
-    name: Ruff
+  ruff-check:
+    name: Ruff Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,6 +51,27 @@ jobs:
 
       - name: Run ruff check
         run: uv run ruff check .
+
+  ruff-format:
+    name: Ruff Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked
 
       - name: Run ruff format --check
         run: uv run ruff format --check .
