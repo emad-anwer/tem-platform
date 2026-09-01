@@ -1,22 +1,3 @@
-# ADR 0002: Identity and Tenant Isolation
-
-**Date:** 2026-08-31  
-**Status:** Proposed  
-**Supersedes:** The Week 2 "self-built JWT + password hashing" plan in [ROADMAP.md](../ROADMAP.md)
-
-## Context
-
-Week 1 shipped tenant CRUD with no authentication — `POST /api/v1/tenants` is open to the
-world. Week 2 must close that gap. The original roadmap assumed we would build user management,
-password hashing, JWT issuance, and RBAC ourselves. We are now delegating identity to
-[Zitadel](https://zitadel.com), a self-hosted OIDC identity provider.
-
-Delegating identity is usually correct. It is also a decision that moves a class of choices out
-of our hands, so this ADR exists to say exactly which choices are now made for us, which ones
-remain ours, and what the boundary between the two looks like in code.
-
----
-
 ## Decisions
 
 ### 1. What Zitadel owns
@@ -333,7 +314,5 @@ contained.
 
 - [RFC 9068 — JWT Profile for OAuth 2.0 Access Tokens](https://www.rfc-editor.org/rfc/rfc9068.html)
 - [RFC 7662 — OAuth 2.0 Token Introspection](https://www.rfc-editor.org/rfc/rfc7662.html)
-- [Zitadel Organizations and Multi-Tenancy](https://zitadel.com/docs/guides/solution-scenarios/multi-tenancy)
 - [Zitadel Project Roles and Token Claims](https://zitadel.com/docs/guides/integrate/retrieve-user-roles)
-- [Zitadel Service Users](https://zitadel.com/docs/guides/integrate/service-users)
 - [ADR 0001 — Module Boundaries](./0001-module-boundaries.md)
