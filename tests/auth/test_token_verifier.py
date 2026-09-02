@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-import time
-from auth_fixtures import FIXTURE_ISSUER, FIXTURE_PROJECT_ID, make_token
+from auth_fixtures import make_token
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.core.auth.principal import Role

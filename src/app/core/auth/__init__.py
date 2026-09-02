@@ -10,6 +10,7 @@ from app.core.auth.token_verifier import (
     TokenVerifier,
     get_token_verifier,
 )
+
 __all__ = [
     "Principal",
     "Role",

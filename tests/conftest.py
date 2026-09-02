@@ -1,23 +1,22 @@
 import os
+import time
 
 import pytest
 import pytest_asyncio
 import respx
-import time
-
+from auth_fixtures import FIXTURE_ISSUER, FIXTURE_PROJECT_ID
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.auth.token_verifier import JWKSCache, TokenVerifier
 from app.core.db import get_db
 from app.core.main import create_app
 from app.core.models import Base
 
-from app.core.auth.token_verifier import JWKSCache, TokenVerifier
-from auth_fixtures import FIXTURE_ISSUER, FIXTURE_KID, FIXTURE_PROJECT_ID
-
 pytest_plugins = ["auth_fixtures"]
 
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
+
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_jwks_endpoint(fixture_jwks):
@@ -33,18 +32,20 @@ def mock_jwks_endpoint(fixture_jwks):
 
         yield mock
 
+
 @pytest.fixture
 def test_verifier(fixture_jwks) -> TokenVerifier:
     """A TokenVerifier backed by the in-process test JWKS (no HTTP)."""
-    # Build a JWKSCache and manually populate it 
+    # Build a JWKSCache and manually populate it
     cache = JWKSCache.__new__(JWKSCache)
     cache._jwks_uri = f"{FIXTURE_ISSUER}/oauth/v2/keys"
     cache._cache_ttl = 3600.0
     cache._refetch_cooldown = 30.0
     cache._last_fetch = time.monotonic()
     cache._last_forced_refetch = 0.0
-    
+
     from jwt import PyJWK
+
     cache._keys = {}
     for key_data in fixture_jwks["keys"]:
         kid = key_data.get("kid")
@@ -55,6 +56,7 @@ def test_verifier(fixture_jwks) -> TokenVerifier:
         audience=FIXTURE_PROJECT_ID,
         jwks_cache=cache,
     )
+
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def create_schema():

@@ -182,6 +182,7 @@ class ServiceUnavailableError(AppError):
     ) -> None:
         super().__init__(detail, **kwargs)
 
+
 # Single source of truth: derive PROBLEM_REGISTRY and COMMON_ERROR_RESPONSES from AppError classes
 APP_ERROR_TYPES: tuple[type[AppError], ...] = (
     BadRequestError,
