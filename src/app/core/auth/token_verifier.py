@@ -51,7 +51,7 @@ class JWKSCache:
         self._last_fetch: float = 0.0
         self._last_forced_refetch: float = 0.0
 
-    def _fetch_keys():
+    def _fetch_keys(self) -> None:
         """Fetch the JWKS document and populate the cache."""
         resp = httpx.get(self._jwks_uri, timeout=10.0)
         resp.raise_for_status()
@@ -107,7 +107,7 @@ class TokenVerifier:
         self,
         issuer: str, 
         audience: str,
-        jwks_cache = jwks_cache
+        jwks_cache: JWKSCache
     ) -> None:
         self._issuer = issuer
         self._audience = audience
@@ -119,7 +119,7 @@ class TokenVerifier:
         """
         # 1. Read the header to get kid + alg
         try:
-            unverified_header = jwt.get_verified_header(token)
+            unverified_header = jwt.get_unverified_header(token)
         except jwt.exceptions.DecodeError as exc:
             raise TokenVerificationError("Malformed token header") from exc
 
@@ -167,7 +167,7 @@ class TokenVerifier:
         except jwt.PyJWTError as exc:
             raise TokenVerificationError(f"Token verification failed: {exc}") from exc
         
-        return self._claim
+        return self._claims_to_principal(claims)
 
     def _claims_to_principal(self, claims: dict[str, Any]) -> Principal:
         """Map validated JWT claims to a Principal per ADR-0002."""
