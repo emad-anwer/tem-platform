@@ -22,7 +22,12 @@ class TenantService:
         self._repository = TenantRepository(session)
 
     async def create_tenant(
-        self, *, name: str, slug: str, is_active: bool = True
+        self,
+        *,
+        name: str,
+        slug: str,
+        is_active: bool = True,
+        zitadel_org_id: str | None = None,
     ) -> Tenant:
         existing = await self._repository.get_by_slug(slug)
         if existing is not None:
@@ -30,7 +35,10 @@ class TenantService:
 
         try:
             return await self._repository.create(
-                name=name, slug=slug, is_active=is_active
+                name=name,
+                slug=slug,
+                is_active=is_active,
+                zitadel_org_id=zitadel_org_id,
             )
         except IntegrityError as exc:
             await self._session.rollback()
