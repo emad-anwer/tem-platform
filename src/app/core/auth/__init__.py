@@ -5,5 +5,18 @@ Everything outside core/auth/ receives only Principal and Role.
 """
 
 from app.core.auth.principal import Principal, Role
+from app.core.auth.token_verifier import (
+    TokenVerificationError,
+    TokenVerifier,
+    VerifiedClaims,
+    get_token_verifier,
+)
 
-__all__ = ["Principal", "Role"]
+__all__ = [
+    "Principal",
+    "Role",
+    "TokenVerificationError",
+    "TokenVerifier",
+    "VerifiedClaims",
+    "get_token_verifier",
+]

@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     # explicitly via setting DEBUG=true. Default is False.
     debug: bool = False
 
+    # Zitadel
+    zitadel_issuer: str = "http://zitadel:8080"
+    zitadel_project_id: str = ""
+
+    @property
+    def oidc_discovery_url(self) -> str:
+        return f"{self.zitadel_issuer}/.well-known/openid-configuration"
+
 
 @lru_cache
 def get_settings() -> Settings:
