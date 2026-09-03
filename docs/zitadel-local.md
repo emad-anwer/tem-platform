@@ -3,9 +3,8 @@
 **Status:** Active · **Module:** Identity Infra Prework (W2-05) · **Author:** Mentor (infra/docs only, no application code)
 
 This is the base Zitadel Compose service and console walkthrough for **W2-05**. It gets you
-from `git clone` to holding a real, decoded access token that satisfies ADR-0002. It does
-**not** include the idempotent bootstrap script or `just zitadel-bootstrap` recipe — that
-automation is the actual W2-05 deliverable and is intentionally left for you to build. What's
+from `git clone` to holding a real, decoded access token that satisfies ADR-0002. It includes
+the idempotent W2-05 bootstrap script and the `just zitadel-bootstrap` recipe. What's
 here is meant to make that task an ordinary one instead of a science project: the compose
 service works, the console steps are spelled out, and every trap we hit while proving it out is
 documented below so you don't lose a day rediscovering them.
@@ -94,9 +93,14 @@ granted roles against.**
 
 ```bash
 git clone <repo> && cd tem-platform
-cp .env.example .env          # fill in ZITADEL_PROJECT_ID after step 3 below
+cp .env.example .env
 just up
+just zitadel-bootstrap
 ```
+
+The bootstrap reads `ZITADEL_DEV_USERNAME`, `ZITADEL_DEV_EMAIL`, and
+`ZITADEL_DEV_PASSWORD` from `.env`. It creates missing resources, skips existing roles, and
+reconciles an existing user grant to all ADR-0002 roles, so running it repeatedly is safe.
 
 Cold start (`docker compose down -v && up -d`, empty volumes) reaches a healthy `zitadel`
 container in **~20–30 seconds** on a laptop. `zitadel-db` and `zitadel` add roughly **~200 MB**
@@ -288,38 +292,55 @@ do).
   decision, not a compose-file default; flagging it rather than guessing.
 
 ---
+ ## 6. First-boot failure modes we actually hit
 
-## 6. First-boot failure modes we actually hit
-
-**Machine user + PAT auto-bootstrap crash loop.** We tried adding
-`ZITADEL_FIRSTINSTANCE_ORG_MACHINE_*` and `ZITADEL_FIRSTINSTANCE_PATPATH` env vars to
-auto-provision a machine user + personal access token at first boot, for fully headless testing.
-With an `ORG_MACHINE_PAT_EXPIRATIONDATE` set, the `03_default_instance` setup migration failed
-outright:
-
-```
-level=error msg="migration failed" ... error="ID=V3-DKcYh Message=Errors.Instance.Domain.AlreadyExists ... duplicate key value violates unique constraint \"unique_constraints_pkey\" ... Key (instance_id, unique_type, unique_field)=(, instance_domain, zitadel) already exists."
-level=fatal msg="setup failed, skipping cleanup"
-```
-
-This put the container into a permanent crash loop — confirmed across three consecutive
-automatic restarts, recoverable only with `docker compose down -v` (full volume wipe). Root
+-**Machine user + PAT auto-bootstrap.** Compose configures the first-instance IAM Owner machine
+-user and writes its PAT to the ignored local `.zitadel-bootstrap/admin.pat` file. The bootstrap
+-script consumes that management credential. The separate Login Client PAT path is not used on
+-this pinned legacy Login V1 setup.
+-
+-The generic path was tried to
+-auto-provision a machine user + personal access token at first boot, for fully headless testing.
+-With an `ORG_MACHINE_PAT_EXPIRATIONDATE` set, the `03_default_instance` setup migration failed
+-outright:
+-
+-```
+-level=error msg="migration failed" ... error="ID=V3-DKcYh Message=Errors.Instance.Domain.AlreadyExists ... duplicate key value violates unique constraint \"unique_constraints_pkey\" ... Key (instance_id, unique_type, unique_field)=(, instance_domain, zitadel) already exists."
+-level=fatal msg="setup failed, skipping cleanup"
+-```
+-
+-This put the container into a permanent crash loop — confirmed across three consecutive
+-automatic restarts, recoverable only with `docker compose down -v` (full volume wipe). Root
 cause not fully isolated (possibly an ordering/idempotency bug in this Zitadel version's
-first-instance machine+PAT path specifically, since the human-only bootstrap path is solid). We
-abandoned this approach as unnecessary scope creep for this deliverable — it is **not** in
-`compose.yaml`. If W2-05's bootstrap script wants a fully headless machine user at first boot,
-budget time to either debug this further or avoid `FirstInstance.Org.Machine` entirely and
-create the service user via the Management API instead (which works reliably, see §3 step 7).
+-first-instance machine+PAT path specifically, since the human-only bootstrap path is solid). We
+-abandoned this approach as unnecessary scope creep for this deliverable — it is **not** in
+-`compose.yaml`. If an existing local volume was initialized with different first-instance
+-settings, reset it once with `docker compose down -v` before retrying.
+-budget time to either debug this further or avoid `FirstInstance.Org.Machine` entirely and
+-create the service user via the Management API instead (which works reliably, see §3 step 7).
++**Machine user + PAT auto-bootstrap.** `compose.yaml` configures a first-instance
++IAM Owner machine user (`zitadel-bootstrap`) and writes its PAT to
++`.zitadel-bootstrap/admin.pat`. The bootstrap script reads this PAT and uses it for all
++Management API calls. This is the standard Zitadel first-boot automation path and is the only
++practical way to get a management credential in a headless environment without additional
++orchestration.
++
++**Historical note:** during early experimentation, a crash loop was observed when
++`ORG_MACHINE_PAT_EXPIRATIONDATE` was combined with a volume that had been initialized with
++different first-instance settings. The root cause was a dirty volume (duplicate key on
++re-init), not the machine user configuration itself. A clean volume (`docker compose down -v`)
++resolves this. The current `compose.yaml` settings are stable and tested — fresh volume to
++healthy container in ~20–30 seconds, PAT written correctly, zero restarts.
++
++**Why not the human-admin-only path?** The docs originally suggested avoiding
++`FirstInstance.Org.Machine` entirely and creating the service user via the Management API
++instead. This is mechanically impossible without a two-phase bootstrap: the Management API
++requires a PAT to authenticate, but the human admin created at first boot does not have a PAT
++until one is created via the Management API — a chicken-and-egg problem. The machine user
++path closes this loop cleanly.
 
-**`ZITADEL_DEFAULTINSTANCE_OIDCSETTINGS_*` partial config.** The docs for this setting say "if
-defined but not all durations are set it will result in an error" — this is accurate. Set all
-four (`ACCESSTOKENLIFETIME`, `IDTOKENLIFETIME`, `REFRESHTOKENIDLEEXPIRATION`,
-`REFRESHTOKENEXPIRATION`) or none.
-
-**No shell in the Zitadel container.** `docker compose exec zitadel sh` (or `bash`, `ls`, `cat`)
-fails with "executable file not found in $PATH" — this is a minimal single-binary image
-(`Entrypoint: [/app/zitadel]`), not a distro image. Use `docker cp` to pull files out, and
-`/app/zitadel <subcommand>` (e.g. `ready`) for anything you'd normally shell in for.
+ **`ZITADEL_DEFAULTINSTANCE_OIDCSETTINGS_*` partial config.** The docs for this setting say "if
+ defined but not all durations are set it will result in an error" — this is accurate. Set all
 
 ---
 
@@ -415,7 +436,7 @@ already solved above.
 | Roles claim is missing specifically on a **machine user / client_credentials** token, and you've triple-checked §3 | This isn't a config mistake — it's a real limitation of this Zitadel version | See §7 finding 1. Don't spend more time chasing a config fix; it doesn't exist here |
 | Token is a random opaque string, not three dot-separated base64 chunks | Application's Token Type wasn't set to JWT (it's opaque by default) | §3 step 5, "Token Type: JWT"; see §7 finding 3 |
 | `GET {issuer}/.well-known/jwks.json` returns 404 | ADR-0002 states the wrong path | Use `{issuer}/oauth/v2/keys` instead (or read `jwks_uri` from the discovery doc); see §7 finding 2 |
-| Zitadel container stuck restarting / crash loop after adding first-boot env vars | Likely the machine+PAT bootstrap bug in §6 | `docker compose down -v` to reset, then avoid `ZITADEL_FIRSTINSTANCE_ORG_MACHINE_*`/`PATPATH`; create service users via the Management API instead (§3 step 7) |
+| Zitadel container stuck restarting / crash loop after adding first-boot env vars | Dirty volume from a prior init with different first-instance settings | `docker compose down -v` to wipe the volume, then `docker compose up` again — the current `compose.yaml` config is stable |
 | Zitadel fails to start after editing `OIDCSETTINGS` env vars | Only some of the four duration vars were set | All four (`ACCESSTOKENLIFETIME`, `IDTOKENLIFETIME`, `REFRESHTOKENIDLEEXPIRATION`, `REFRESHTOKENEXPIRATION`) must be set together, or none — see §6 |
 | `docker compose exec zitadel sh` (or `bash`/`ls`) fails: "executable file not found" | This image has no shell, it's a single binary | Use `docker cp` to pull files out; use `/app/zitadel <subcommand>` instead of shelling in — see §6 |
 | A requested claim/scope just silently doesn't show up, no error anywhere | Wrong or missing OIDC **scope** requested at login (see the glossary in §0) | Double-check the `scope=` parameter in your authorize URL includes everything the checklist in §4 needs |

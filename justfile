@@ -54,7 +54,7 @@ zitadel-discovery:
 
 # fetch an OAuth2 access token via the client_credentials grant, for a
 # machine user/app you've created by hand in the Zitadel console (see
-# docs/zitadel-local.md) — there is no automated bootstrap yet (W2-05).
+# docs/zitadel-local.md)
 # Same /etc/hosts prerequisite as zitadel-discovery.
 zitadel-token client_id client_secret:
     curl -s -u "{{client_id}}:{{client_secret}}" \
@@ -74,6 +74,9 @@ zitadel-decode token:
     header, payload, _ = "{{token}}".split(".")
     print(json.dumps(json.loads(b64d(header)), indent=2))
     print(json.dumps(json.loads(b64d(payload)), indent=2))
+
+zitadel-bootstrap:
+    docker compose exec app python scripts/zitadel_bootstrap.py
 
 # run database migrations
 migrate:
