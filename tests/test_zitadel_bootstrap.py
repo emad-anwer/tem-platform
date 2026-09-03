@@ -3,15 +3,13 @@
 Run with: pytest tests/test_zitadel_bootstrap.py -v
 
 Requires a running Zitadel instance (use `just zitadel-up` first).
+Tests auto-skip if Zitadel is unreachable.
 """
 
 from __future__ import annotations
 
 import json
-
-# Import the module under test. Adjust the path to match your project layout.
-# If the script is at scripts/zitadel_bootstrap.py:
-import sys
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -19,21 +17,48 @@ from typing import Any
 
 import pytest
 
+# Set defaults for the Docker environment before importing the bootstrap module.
+# These match the service names and paths in compose.yaml.
+os.environ.setdefault("ZITADEL_ISSUER", "http://zitadel:8080")
+os.environ.setdefault("ZITADEL_BOOTSTRAP_PAT_PATH", "/run/zitadel-bootstrap/admin.pat")
+os.environ.setdefault("ZITADEL_DEV_PASSWORD", "DevOnlyPassw0rd!")
+
+# Import the module under test. Adjust the path to match your project layout.
+import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from zitadel_bootstrap import (
+    PROJECT_NAME,
     APPLICATION_NAME,
     DEV_ORG_NAME,
-    PROJECT_NAME,
     ROLES,
     Config,
     ZitadelClient,
 )
 
+
+# ---------------------------------------------------------------------------
+# Skip helper
+# ---------------------------------------------------------------------------
+
+def _zitadel_available() -> bool:
+    """Check if Zitadel is reachable."""
+    issuer = os.getenv("ZITADEL_ISSUER", "http://zitadel:8080").rstrip("/")
+    try:
+        req = urllib.request.Request(f"{issuer}/debug/ready", method="GET")
+        with urllib.request.urlopen(req, timeout=5):
+            return True
+    except (urllib.error.URLError, TimeoutError):
+        return False
+
+
+ZITADEL_AVAILABLE = _zitadel_available()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 def _request(
     url: str,
@@ -52,6 +77,7 @@ def _request(
         raise RuntimeError(f"HTTP {exc.code}: {body}") from exc
 
 
+@pytest.mark.skipif(not ZITADEL_AVAILABLE, reason="Zitadel not available")
 class TestZitadelBootstrap:
     """End-to-end idempotency tests against a real Zitadel instance."""
 
@@ -100,7 +126,6 @@ class TestZitadelBootstrap:
         apps = bootstrapped.search_applications(project["id"])
         app = next((a for a in apps if a.get("name") == APPLICATION_NAME), None)
         assert app is not None
-        # OIDC config is a nested object in the search result
         config = app.get("oidcConfig", {})
         assert config.get("accessTokenType") == "OIDC_TOKEN_TYPE_JWT"
         assert config.get("accessTokenRoleAssertion") is True
