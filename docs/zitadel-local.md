@@ -93,7 +93,7 @@ granted roles against.**
 
 ```bash
 git clone <repo> && cd tem-platform
-cp .env.example .env          # fill in ZITADEL_PROJECT_ID after step 3 below
+cp .env.example .env
 just up
 just zitadel-bootstrap
 ```
