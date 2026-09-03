@@ -21,5 +21,6 @@ notes.txt
 *.rsa
 *.dsa
 *.ecdsa
-.env
+.env*
+!.env.example
 .zitadel-bootstrap/
