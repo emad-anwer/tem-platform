@@ -8,6 +8,7 @@ from app.core.auth.principal import Principal, Role
 from app.core.auth.token_verifier import (
     TokenVerificationError,
     TokenVerifier,
+    VerifiedClaims,
     get_token_verifier,
 )
 
@@ -16,5 +17,6 @@ __all__ = [
     "Role",
     "TokenVerificationError",
     "TokenVerifier",
+    "VerifiedClaims",
     "get_token_verifier",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import time
 from typing import Any
 
@@ -8,7 +9,7 @@ import jwt
 import structlog
 from jwt import PyJWK
 
-from app.core.auth.principal import Principal, Role
+from app.core.auth.principal import Role
 
 logger = structlog.getLogger(__name__)
 
@@ -33,11 +34,11 @@ def fetch_jwks_uri(discovery_url: str) -> str:
 
 class JWKSCache:
     """
-    Fetches, caches, and rotates JWKS Keys
-    JWKS are the public keys used to verify Zitadel's JWT signatures
+    Fetches, caches, and rotates JWKS Keys.
+    JWKS are the public keys used to verify Zitadel's JWT signatures.
     """
 
-    def _init__(
+    def __init__(
         self,
         jwks_uri: str,
         cache_ttl: float = 3600.0,  # 1 hr
@@ -91,7 +92,7 @@ class JWKSCache:
             self._fetch_keys()
 
             if kid in self._keys:
-                return self._keys[id]
+                return self._keys[kid]
 
         raise jwt.exceptions.InvalidKeyError(
             f"Signing key with kid={kid!r} not found in JWKS"
@@ -99,7 +100,21 @@ class JWKSCache:
 
 
 class TokenVerificationError(Exception):
-    """Raised when a token cannot be verified."""
+    """Raised when a token cannot be verified. Fail closed."""
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedClaims:
+    """Raw verified output from token verification.
+
+    This carries the Zitadel org ID (external), NOT our internal tenant UUID.
+    The mapping from zitadel_org_id → tenant;
+    this module must not couple to the database.
+    """
+
+    user_id: str           # sub claim
+    zitadel_org_id: str    # urn:zitadel:iam:user:resourceowner:id
+    role: Role             # highest-priority role from the token
 
 
 class TokenVerifier:
@@ -110,9 +125,10 @@ class TokenVerifier:
         self._audience = audience
         self._jwks_cache = jwks_cache
 
-    def verify(self, token: str) -> Principal:
-        """
-        Varify the token and return a Pricipale or raise an error
+    def verify(self, token: str) -> VerifiedClaims:
+        """Verify the token and return VerifiedClaims, or raise.
+
+        An unverifiable token is not a token
         """
         # 1. Read the header to get kid + alg
         try:
@@ -164,13 +180,13 @@ class TokenVerifier:
         except jwt.PyJWTError as exc:
             raise TokenVerificationError(f"Token verification failed: {exc}") from exc
 
-        return self._claims_to_principal(claims)
+        return self._claims_to_verified(claims)
 
-    def _claims_to_principal(self, claims: dict[str, Any]) -> Principal:
-        """Map validated JWT claims to a Principal per ADR-0002."""
-        # tenant_id comes from exactly one place
-        tenant_id = claims.get(_RESOURCEOWNER_CLAIM)
-        if not tenant_id:
+    def _claims_to_verified(self, claims: dict[str, Any]) -> VerifiedClaims:
+        """Map validated JWT claims to VerifiedClaims per ADR-0002."""
+        # tenant org ID comes from exactly one place
+        zitadel_org_id = claims.get(_RESOURCEOWNER_CLAIM)
+        if not zitadel_org_id:
             raise TokenVerificationError(
                 f"Token missing required claim: {_RESOURCEOWNER_CLAIM}"
             )
@@ -181,9 +197,9 @@ class TokenVerifier:
         roles = set(roles_dict.keys()) if isinstance(roles_dict, dict) else set()
 
         role = self._select_role(roles)
-        return Principal(
+        return VerifiedClaims(
             user_id=claims["sub"],
-            tenant_id=tenant_id,
+            zitadel_org_id=zitadel_org_id,
             role=role,
         )
 
@@ -210,11 +226,12 @@ def get_token_verifier(
     if _verifier_instance is not None:
         return _verifier_instance
 
-    from app.core.config import auth_settings
+    from app.core.config import get_settings
 
-    _issuer = issuer or auth_settings.zitadel_issuer
-    _audience = audience or auth_settings.zitadel_project_id
-    _discovery = discovery_url or auth_settings.oidc_discovery_url
+    settings = get_settings()
+    _issuer = issuer or settings.zitadel_issuer
+    _audience = audience or settings.zitadel_project_id
+    _discovery = discovery_url or settings.oidc_discovery_url
 
     jwks_uri = fetch_jwks_uri(_discovery)
     cache = JWKSCache(jwks_uri)
