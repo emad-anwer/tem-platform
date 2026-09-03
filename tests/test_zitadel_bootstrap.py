@@ -29,18 +29,18 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from zitadel_bootstrap import (
-    PROJECT_NAME,
     APPLICATION_NAME,
     DEV_ORG_NAME,
+    PROJECT_NAME,
     ROLES,
     Config,
     ZitadelClient,
 )
 
-
 # ---------------------------------------------------------------------------
 # Skip helper
 # ---------------------------------------------------------------------------
+
 
 def _zitadel_available() -> bool:
     """Check if Zitadel is reachable."""
@@ -59,6 +59,7 @@ ZITADEL_AVAILABLE = _zitadel_available()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _request(
     url: str,
