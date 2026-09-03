@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -53,10 +54,26 @@ class JWKSCache:
         self._last_forced_refetch: float = 0.0
 
     def _fetch_keys(self) -> None:
-        """Fetch the JWKS document and populate the cache."""
-        resp = httpx.get(self._jwks_uri, timeout=10.0)
-        resp.raise_for_status()
-        jwks_data = resp.json()
+        """
+        Fetch the JWKS document and populate the cache.
+        """
+        try:
+            resp = httpx.get(self._jwks_uri, timeout=10.0)
+            resp.raise_for_status()
+            jwks_data = resp.json()
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            if self._keys:
+                logger.warning(
+                    "Failed to fetch JWKS, falling back to stale cache. Error: %s", exc
+                )
+                self._last_fetch = time.monotonic()
+                return
+            else:
+                logger.error("Failed to fetch JWKS and cache is empty.")
+                raise TokenVerificationError(
+                    f"Unable to fetch JWKS from IdP: {exc}"
+                ) from exc
+
         new_keys: dict[str, PyJWK] = {}
         for key_data in jwks_data.get("keys", []):
             kid = key_data.get("kid")
@@ -74,10 +91,10 @@ class JWKSCache:
 
     def get_key(self, kid: str | None) -> PyJWK:
         """
-        Get the signing key for the given kid
+        Get the signing key for the given kid.
         1. If the cache is empty or stale then fetch
         2. If kid is known then return it
-        3. If kid is unkown and cooldown elapsed then refetch once
+        3. If kid is unknown and cooldown elapsed then refetch once
         4. If kid is still unknown after refetch then raise an error
         """
         if not self._keys or self._is_cache_stale():
@@ -151,7 +168,7 @@ class TokenVerifier:
         except jwt.exceptions.InvalidKeyError as exc:
             raise TokenVerificationError(str(exc)) from exc
 
-        # 3. Verify signatur + claims
+        # 3. Verify signature + claims
         try:
             claims = jwt.decode(
                 token,
@@ -214,18 +231,13 @@ class TokenVerifier:
         )
 
 
-_verifier_instance: TokenVerifier | None = None
-
-
+@lru_cache
 def get_token_verifier(
     issuer: str | None = None,
     audience: str | None = None,
     discovery_url: str | None = None,
 ) -> TokenVerifier:
-    global _verifier_instance
-    if _verifier_instance is not None:
-        return _verifier_instance
-
+    """Memoized verifier factory. Supports per-call configurability."""
     from app.core.config import get_settings
 
     settings = get_settings()
@@ -236,14 +248,9 @@ def get_token_verifier(
     jwks_uri = fetch_jwks_uri(_discovery)
     cache = JWKSCache(jwks_uri)
 
-    _verifier_instance = TokenVerifier(
+    return TokenVerifier(
         issuer=_issuer,
         audience=_audience,
         jwks_cache=cache,
     )
-    return _verifier_instance
 
-
-def reset_verifier() -> None:
-    global _verifier_instance
-    _verifier_instance = None
