@@ -3,6 +3,7 @@ import structlog
 from fastapi import FastAPI
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.auth.context import PrincipalContextMiddleware
 from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
 from app.core.errors import register_error_handlers
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
     # Middlewares
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(PrincipalContextMiddleware)
 
     # Register RFC 9457 exception handlers
     register_error_handlers(app)
