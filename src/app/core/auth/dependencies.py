@@ -30,9 +30,7 @@ def _unauthorized(detail: str) -> HTTPException:
 
 
 async def get_principal(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
-    ],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[AsyncSession, Depends(get_db)],
     verifier: Annotated[TokenVerifier, Depends(get_token_verifier)],
 ) -> Principal:

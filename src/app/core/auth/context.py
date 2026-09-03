@@ -8,9 +8,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.auth.principal import Principal
 
-_principal: ContextVar[Principal | None] = ContextVar(
-    "principal", default=None
-)
+_principal: ContextVar[Principal | None] = ContextVar("principal", default=None)
 
 
 def set_current_principal(principal: Principal) -> Token[Principal | None]:
