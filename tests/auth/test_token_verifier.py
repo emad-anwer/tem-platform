@@ -17,10 +17,9 @@ cooldown rate-limiting.
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
 
 import pytest
-from auth_fixtures import FIXTURE_ISSUER, FIXTURE_KID, FIXTURE_PROJECT_ID, make_token
+from auth_fixtures import FIXTURE_ISSUER, FIXTURE_PROJECT_ID, make_token
 from conftest import FakeJWKSCache
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt import PyJWK
@@ -28,7 +27,6 @@ from jwt.algorithms import RSAAlgorithm
 
 from app.core.auth.principal import Role
 from app.core.auth.token_verifier import TokenVerificationError, TokenVerifier
-
 
 # ---- Happy path ----
 

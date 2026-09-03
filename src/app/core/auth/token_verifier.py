@@ -112,9 +112,9 @@ class VerifiedClaims:
     this module must not couple to the database.
     """
 
-    user_id: str           # sub claim
-    zitadel_org_id: str    # urn:zitadel:iam:user:resourceowner:id
-    role: Role             # highest-priority role from the token
+    user_id: str  # sub claim
+    zitadel_org_id: str  # urn:zitadel:iam:user:resourceowner:id
+    role: Role  # highest-priority role from the token
 
 
 class TokenVerifier:

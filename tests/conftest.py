@@ -29,7 +29,9 @@ class FakeJWKSCache(JWKSCache):
         cache_ttl: float = 3600.0,
         refetch_cooldown: float = 30.0,
     ) -> None:
-        super().__init__(jwks_uri, cache_ttl=cache_ttl, refetch_cooldown=refetch_cooldown)
+        super().__init__(
+            jwks_uri, cache_ttl=cache_ttl, refetch_cooldown=refetch_cooldown
+        )
         self._load_fixture(fixture_jwks)
 
     def _load_fixture(self, fixture_jwks: dict) -> None:
@@ -45,6 +47,7 @@ class FakeJWKSCache(JWKSCache):
     def _fetch_keys(self) -> None:
         """Override to avoid real HTTP calls in most tests."""
         import time
+
         self._last_fetch = time.monotonic()
 
 
