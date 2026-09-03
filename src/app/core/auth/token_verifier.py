@@ -253,4 +253,3 @@ def get_token_verifier(
         audience=_audience,
         jwks_cache=cache,
     )
-
