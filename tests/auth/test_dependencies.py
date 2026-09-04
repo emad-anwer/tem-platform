@@ -50,7 +50,7 @@ class FakeVerifier:
 @pytest.mark.asyncio
 async def test_missing_credentials_returns_bearer_challenge():
     with pytest.raises(HTTPException) as error:
-        await get_principal(None, FakeSession(None), FakeVerifier())
+        await get_principal(None, FakeSession(None), lambda: FakeVerifier())
 
     assert error.value.status_code == 401
     assert error.value.headers == {"WWW-Authenticate": "Bearer"}
@@ -69,7 +69,7 @@ async def test_verified_claims_map_to_internal_principal_and_context():
     principal = await get_principal(
         HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
         FakeSession(tenant),
-        FakeVerifier(claims=claims),
+        lambda: FakeVerifier(claims=claims),
     )
 
     assert principal.user_id == "user-1"
@@ -91,7 +91,7 @@ async def test_verification_runs_off_event_loop():
     await get_principal(
         HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
         FakeSession(SimpleNamespace(id=uuid4(), is_active=True)),
-        verifier,
+        lambda: verifier,
     )
     clear_current_principal()
 
@@ -107,7 +107,7 @@ async def test_inactive_tenant_is_forbidden():
         await get_principal(
             HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
             FakeSession(SimpleNamespace(id=uuid4(), is_active=False)),
-            FakeVerifier(claims=claims),
+            lambda: FakeVerifier(claims=claims),
         )
 
     assert error.value.status_code == 403
