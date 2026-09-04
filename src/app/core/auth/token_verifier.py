@@ -223,11 +223,16 @@ class TokenVerifier:
     @staticmethod
     def _select_role(roles: set[str]) -> Role:
         """Select the highest-privilege role from the set."""
-        for candidate in (Role.OWNER, Role.ANALYST, Role.VIEWER):
+        for candidate in (
+            Role.PLATFORM_ADMIN,
+            Role.OWNER,
+            Role.ANALYST,
+            Role.VIEWER,
+        ):
             if candidate.value in roles:
                 return candidate
         raise TokenVerificationError(
-            "Token has no recognized role (need owner, analyst, or viewer)"
+            "Token has no recognized role (need platform_admin, owner, analyst, or viewer)"
         )
 
 

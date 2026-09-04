@@ -46,6 +46,18 @@ def test_valid_token_returns_verified_claims(rsa_private_key, test_verifier):
     assert result.role == Role.ANALYST
 
 
+def test_platform_admin_role_is_normalized(rsa_private_key, test_verifier):
+    token = make_token(
+        private_key=rsa_private_key,
+        tenant_zitadel_org_id="org-platform",
+        roles=["platform_admin", "viewer"],
+    )
+
+    result = test_verifier.verify(token)
+
+    assert result.role == Role.PLATFORM_ADMIN
+
+
 # ---- Failure modes — each MUST fail if you delete the corresponding check ----
 
 

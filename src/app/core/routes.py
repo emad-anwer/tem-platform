@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
+from app.core.auth.permissions import Permission, require_permission
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.core.schemas import (
     TenantCollectionDocument,
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/api/v1", tags=["tenants"])
     "/tenants",
     response_model=TenantDocument,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(Permission.TENANT_CREATE))],
     responses={
         201: {"description": "Tenant created"},
         409: {"description": "Duplicate tenant slug"},
@@ -46,6 +48,7 @@ async def create_tenant(
 @router.get(
     "/tenants",
     response_model=TenantCollectionDocument,
+    dependencies=[Depends(require_permission(Permission.TENANT_READ))],
     responses={
         200: {"description": "Tenant list"},
         400: {"description": "Invalid cursor"},
@@ -77,6 +80,7 @@ async def list_tenants(
 @router.get(
     "/tenants/{tenant_id}",
     response_model=TenantDocument,
+    dependencies=[Depends(require_permission(Permission.TENANT_READ))],
     responses={
         200: {"description": "Tenant retrieved"},
         404: {"description": "Tenant not found"},
