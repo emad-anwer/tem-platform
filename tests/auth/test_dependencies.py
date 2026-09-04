@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -33,11 +34,14 @@ class FakeSession:
 
 
 class FakeVerifier:
-    def __init__(self, claims=None, error=None):
+    def __init__(self, claims=None, error=None, thread_ids=None):
         self._claims = claims
         self._error = error
+        self._thread_ids = thread_ids
 
     def verify(self, _token):
+        if self._thread_ids is not None:
+            self._thread_ids.append(threading.get_ident())
         if self._error is not None:
             raise self._error
         return self._claims
@@ -74,6 +78,25 @@ async def test_verified_claims_map_to_internal_principal_and_context():
     assert get_current_principal() == principal
 
     clear_current_principal()
+
+
+@pytest.mark.asyncio
+async def test_verification_runs_off_event_loop():
+    thread_ids = []
+    verifier = FakeVerifier(
+        claims=VerifiedClaims("user-1", "org-1", Role.ANALYST),
+        thread_ids=thread_ids,
+    )
+
+    await get_principal(
+        HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
+        FakeSession(SimpleNamespace(id=uuid4(), is_active=True)),
+        verifier,
+    )
+    clear_current_principal()
+
+    assert thread_ids
+    assert thread_ids[0] != threading.get_ident()
 
 
 @pytest.mark.asyncio

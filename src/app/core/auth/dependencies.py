@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.core.auth.context import set_current_principal
 from app.core.auth.principal import Principal
@@ -39,7 +40,7 @@ async def get_principal(
         raise _unauthorized("Authentication credentials are required.")
 
     try:
-        claims = verifier.verify(credentials.credentials)
+        claims = await run_in_threadpool(verifier.verify, credentials.credentials)
     except TokenVerificationError as exc:
         raise _unauthorized("Invalid authentication credentials.") from exc
 
