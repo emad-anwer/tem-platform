@@ -1,5 +1,6 @@
 import os
 import time
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -8,6 +9,8 @@ from auth_fixtures import FIXTURE_ISSUER, FIXTURE_PROJECT_ID
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.auth.dependencies import get_principal
+from app.core.auth.principal import Principal, Role
 from app.core.auth.token_verifier import JWKSCache, TokenVerifier
 from app.core.db import get_db
 from app.core.main import create_app
@@ -140,6 +143,11 @@ async def client(app, db_session: AsyncSession):
     async def override_get_db():
         yield db_session
 
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        user_id="test-platform-admin",
+        tenant_id=uuid4(),
+        role=Role.PLATFORM_ADMIN,
+    )
     app.dependency_overrides[get_db] = override_get_db
 
     transport = ASGITransport(app=app)
