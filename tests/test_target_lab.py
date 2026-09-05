@@ -7,6 +7,7 @@ import pytest
 
 LAB_ROOT = Path(__file__).parent.parent
 COMPOSE_FILE = LAB_ROOT / "compose.yaml"
+JUSTFILE = LAB_ROOT / "justfile"
 TARGET_LAB_DOC = LAB_ROOT / "docs" / "target-lab.md"
 TLS_CERT_FILE = LAB_ROOT / "lab" / "tls" / "certs" / "server.crt"
 TLS_KEY_FILE = LAB_ROOT / "lab" / "tls" / "certs" / "server.key"
@@ -82,6 +83,27 @@ def test_target_lab_ground_truth_documentation_integrity() -> None:
     assert "sub1.target4.lab.local" in doc
     assert "api.target4.lab.local" in doc
     assert "admin.internal.tem.local" in doc
+
+
+def test_lab_up_depends_on_lab_certs() -> None:
+    """Verify the justfile wires lab-up to generate TLS certs on a clean clone."""
+    justfile = JUSTFILE.read_text(encoding="utf-8")
+
+    # lab-up must declare lab-certs as a prerequisite
+    assert "lab-up: lab-certs" in justfile, (
+        "lab-up must depend on lab-certs (W1-10 issue #53)"
+    )
+
+    # lab-certs must exist and invoke the generation script
+    assert "lab-certs:" in justfile, "lab-certs recipe missing from justfile"
+    assert "generate_certs.sh" in justfile, (
+        "lab-certs must call ./lab/tls/generate_certs.sh"
+    )
+
+    # lab-certs must be idempotent: skip if certs already exist
+    assert "server.crt" in justfile and "server.key" in justfile, (
+        "lab-certs must check for server.crt/server.key to be idempotent"
+    )
 
 
 # ======================================================================
