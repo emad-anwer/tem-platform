@@ -235,7 +235,9 @@ async def test_update_and_delete_verify_ownership_before_acting(fake_async_sessi
 @pytest.mark.asyncio
 async def test_cursor_pagination_forward_navigation(fake_async_session):
     tenant_id = uuid4()
-    set_current_principal(Principal(user_id="user-1", tenant_id=tenant_id, role=Role.OWNER))
+    set_current_principal(
+        Principal(user_id="user-1", tenant_id=tenant_id, role=Role.OWNER)
+    )
     repo = DummyTenantRepository(fake_async_session)
 
     # Create 5 items
