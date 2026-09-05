@@ -12,6 +12,7 @@ from app.core.auth.context import (
 )
 from app.core.auth.principal import Principal, Role
 from app.core.models import Base, TenantOwnedMixin
+from app.core.pagination import decode_cursor, encode_cursor
 from app.core.repository import MissingTenantContextError, TenantScopedRepository
 
 
@@ -20,6 +21,26 @@ class DummyTenantOwnedModel(Base, TenantOwnedMixin):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
+
+
+class DummyTenantRepository(TenantScopedRepository[DummyTenantOwnedModel]):
+    model = DummyTenantOwnedModel
+
+    def _cursor_columns(self) -> tuple:
+        return (self.model.name, self.model.id)
+
+    def _encode_cursor(self, entity: DummyTenantOwnedModel) -> str:
+        return encode_cursor([entity.name, str(entity.id)])
+
+    def _decode_cursor(self, cursor: str) -> tuple[str, UUID]:
+        values = decode_cursor(cursor)
+        if len(values) != 2:
+            raise ValueError("Invalid cursor.")
+        name, id_str = values
+        try:
+            return str(name), UUID(id_str)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid cursor.") from exc
 
 
 class DummyAsyncSessionWrapper:
@@ -141,28 +162,29 @@ async def test_reads_and_lists_are_scoped_to_context_tenant(fake_async_session):
     set_current_principal(
         Principal(user_id="user-a", tenant_id=tenant_a, role=Role.ANALYST)
     )
-    repo_a = TenantScopedRepository(fake_async_session, DummyTenantOwnedModel)
+    repo_a = DummyTenantRepository(fake_async_session)
     item_a = await repo_a.create(name="Tenant A Asset")
 
     # Create for Tenant B
     set_current_principal(
         Principal(user_id="user-b", tenant_id=tenant_b, role=Role.ANALYST)
     )
-    repo_b = TenantScopedRepository(fake_async_session, DummyTenantOwnedModel)
+    repo_b = DummyTenantRepository(fake_async_session)
     item_b = await repo_b.create(name="Tenant B Asset")
 
     # While in Tenant A context, Tenant B item cannot be retrieved or listed
     set_current_principal(
         Principal(user_id="user-a", tenant_id=tenant_a, role=Role.ANALYST)
     )
-    repo_a_current = TenantScopedRepository(fake_async_session, DummyTenantOwnedModel)
+    repo_a_current = DummyTenantRepository(fake_async_session)
 
     assert await repo_a_current.get_by_id(item_a.id) is not None
     assert await repo_a_current.get_by_id(item_b.id) is None
 
-    items = await repo_a_current.list()
+    items, next_cursor = await repo_a_current.list()
     assert len(items) == 1
     assert items[0].id == item_a.id
+    assert next_cursor is None
 
 
 @pytest.mark.asyncio
@@ -208,3 +230,32 @@ async def test_update_and_delete_verify_ownership_before_acting(fake_async_sessi
     deleted = await repo_b_current.delete(item_b.id)
     assert deleted is True
     assert await repo_b_current.get_by_id(item_b.id) is None
+
+
+@pytest.mark.asyncio
+async def test_cursor_pagination_forward_navigation(fake_async_session):
+    tenant_id = uuid4()
+    set_current_principal(Principal(user_id="user-1", tenant_id=tenant_id, role=Role.OWNER))
+    repo = DummyTenantRepository(fake_async_session)
+
+    # Create 5 items
+    for i in range(1, 6):
+        await repo.create(name=f"Asset {i:02d}")
+
+    # Page 1: 2 items
+    page_1, cursor_1 = await repo.list(limit=2)
+    assert len(page_1) == 2
+    assert [x.name for x in page_1] == ["Asset 01", "Asset 02"]
+    assert cursor_1 is not None
+
+    # Page 2: 2 items using cursor_1
+    page_2, cursor_2 = await repo.list(limit=2, cursor=cursor_1)
+    assert len(page_2) == 2
+    assert [x.name for x in page_2] == ["Asset 03", "Asset 04"]
+    assert cursor_2 is not None
+
+    # Page 3: 1 remaining item
+    page_3, cursor_3 = await repo.list(limit=2, cursor=cursor_2)
+    assert len(page_3) == 1
+    assert [x.name for x in page_3] == ["Asset 05"]
+    assert cursor_3 is None
