@@ -1,9 +1,10 @@
 """Shared SQLAlchemy models for the platform."""
 
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -31,4 +32,39 @@ class Tenant(Base):
         unique=True,
         index=True,
         default=None,
+    )
+
+
+class ProvisioningStatus(StrEnum):
+    # Key claimed but zitadel org is not yet created
+    IN_PROGRESS = "in_progress"
+
+    # Zitadel org is created but local insert is not yet done
+    ORG_CREATED = "org_created"
+
+    # Local tenant row exists
+    COMPLETED = "completed"
+
+
+class TenanantProvisioningAttempt(Base):
+    """Tracks the status of tenant provisioning attempts."""
+
+    __tablename__ = "tenant_provisioning_attempts"
+
+    idempotency_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    zitadel_org_id: Mapped[str | None] = mapped_column(String(255), nullable=False)
+    tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True
+    )
+    status: Mapped[ProvisioningStatus] = mapped_column(
+        String(20), nullable=False, default=ProvisioningStatus.IN_PROGRESS
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
