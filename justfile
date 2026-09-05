@@ -100,13 +100,13 @@ test-unit:
 
 # run linter and format checker
 lint:
-    ruff check .
-    ruff format --check .
+    .venv/Scripts/ruff.exe check .
+    .venv/Scripts/ruff.exe format --check .
 
 # auto-fix lint and format issues
 fix:
-    ruff check --fix .
-    ruff format .
+    .venv/Scripts/ruff.exe check --fix .
+    .venv/Scripts/ruff.exe format .
 
 # open a shell inside the app container
 shell:

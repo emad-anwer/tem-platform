@@ -3,12 +3,24 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, String, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy declarative models."""
+
+
+class TenantOwnedMixin:
+    """Mixin providing a tenant_id foreign key column and index for tenant-scoped entities."""
+
+    @declared_attr
+    def tenant_id(cls) -> Mapped[UUID]:
+        return mapped_column(
+            ForeignKey("tenants.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
 
 
 class Tenant(Base):
