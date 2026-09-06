@@ -52,9 +52,11 @@ async def create_tenant(
         )
 
     try:
-        tenant, created = await service.provision_tenant(
+        result = await service.provision_tenant(
             name=payload.name, slug=payload.slug, idempotency_key=idempotency_key
         )
+        tenant = result.tenant
+        created = result.created
     except ZitadelUnavailableError as exc:
         raise ServiceUnavailableError(
             detail="Identity provider is unreachable."

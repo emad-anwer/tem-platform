@@ -91,8 +91,9 @@ class TenantProvisioningService:
             )
 
         if attempt.status == ProvisioningStatus.COMPLETED:
+            tenant_id = attempt.tenant_id
             await self._session.rollback()
-            tenant = await self._tenants.get_by_id(attempt.tenant_id)
+            tenant = await self._tenants.get_by_id(tenant_id)
             return TenantProvisioningResult(tenant=tenant, created=False)
 
         if attempt.status == ProvisioningStatus.IN_PROGRESS:
@@ -123,6 +124,7 @@ class TenantProvisioningService:
                 attempt.status = ProvisioningStatus.COMPLETED
                 attempt.tenant_id = winner.id
                 await self._session.commit()
+                await self._session.refresh(winner)
                 return winner
 
             logger.error(
