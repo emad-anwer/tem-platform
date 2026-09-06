@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from typing import Annotated
 
@@ -17,10 +18,9 @@ from app.core.auth.token_verifier import (
     TokenVerifier,
     get_token_verifier,
 )
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.repository import TenantRepository
-import uuid
-from app.core.config import get_settings
 
 bearer_scheme = HTTPBearer(auto_error=False)
 

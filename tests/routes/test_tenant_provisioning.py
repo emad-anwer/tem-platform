@@ -10,7 +10,6 @@ a test could accidentally exercise to clean up an org.
 
 from __future__ import annotations
 
-import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -213,7 +212,7 @@ async def test_local_insert_failure_leaves_orphan_and_retry_reuses_org(
         for r in caplog.records
         if "tenant_provisioning_local_insert_failed" in r.getMessage()
     ]
-    assert error_logs or True
+    assert error_logs
 
     second = await client.post("/api/v1/tenants", json=payload, headers=headers)
     assert second.status_code == 200

@@ -4,7 +4,6 @@ import time
 from dataclasses import dataclass
 
 import httpx
-from sqlalchemy import exc
 import structlog
 
 from app.core.config import Settings, get_settings

@@ -1,6 +1,6 @@
 import os
 import time
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 from uuid import uuid4
 
 import pytest

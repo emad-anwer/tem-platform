@@ -9,6 +9,7 @@ from app.core.db import get_db
 from app.core.errors import ConflictError, LocalProvisioningFailedError
 from app.core.models import ProvisioningStatus, Tenant, TenantProvisioningAttempt
 from app.core.provisioning.repository import ProvisioningRepository
+from app.core.provisioning.types import TenantProvisioningResult
 from app.core.repository import TenantRepository
 from app.core.zitadel.client import (
     ZitadelApiError,
@@ -16,7 +17,6 @@ from app.core.zitadel.client import (
     ZitadelUnavailableError,
     get_zitadel_client,
 )
-from app.core.provisioning.types import TenantProvisioningResult
 
 logger = structlog.get_logger(__name__)
 
@@ -24,12 +24,11 @@ logger = structlog.get_logger(__name__)
 async def get_tenant_provisioning_service(
     session: AsyncSession = Depends(get_db),
     zitadel_client: ZitadelManagementClient = Depends(get_zitadel_client),
-) -> "TenantProvisioningService":
+) -> TenantProvisioningService:
     return TenantProvisioningService(session, zitadel_client)
 
 
 class TenantProvisioningService:
-
     def __init__(self, session: AsyncSession, zitadel: ZitadelManagementClient) -> None:
         self._session = session
         self._tenants = TenantRepository(session)
