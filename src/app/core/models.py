@@ -46,7 +46,7 @@ class ProvisioningStatus(StrEnum):
     COMPLETED = "completed"
 
 
-class TenanantProvisioningAttempt(Base):
+class TenantProvisioningAttempt(Base):
     """Tracks the status of tenant provisioning attempts."""
 
     __tablename__ = "tenant_provisioning_attempts"

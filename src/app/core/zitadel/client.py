@@ -120,6 +120,26 @@ class ZitadelManagementClient:
         """Close the underlying HTTP client."""
         await self.http_client.aclose()
 
+    async def verify_credentials(self) -> None:
+        await self._get_management_token()
+
+
+_client: ZitadelManagementClient | None = None
+
 
 def get_zitadel_client() -> ZitadelManagementClient:
-    return ZitadelManagementClient()
+    global _client
+    if _client is None:
+        _client = ZitadelManagementClient()
+    return _client
+
+
+async def wait_for_zitadel() -> None:
+    await get_zitadel_client().verify_credentials()
+
+
+async def dispose_zitadel_client() -> None:
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
