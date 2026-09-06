@@ -183,6 +183,28 @@ class ServiceUnavailableError(AppError):
         super().__init__(detail, **kwargs)
 
 
+class UpstreamError(AppError):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    slug = "upstream-error"
+    title = "Upstream Service Error"
+
+    def __init__(
+        self, detail: str = "An upstream service error occurred.", **kwargs: Any
+    ) -> None:
+        super().__init__(detail, **kwargs)
+
+
+class LocalProvisioningFailedError(AppError):
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    slug = "local-provisioning-failed"
+    title = "Local Provisioning Failed"
+
+    def __init__(
+        self, detail: str = "Local provisioning failed.", **kwargs: Any
+    ) -> None:
+        super().__init__(detail, **kwargs)
+
+
 # Single source of truth: derive PROBLEM_REGISTRY and COMMON_ERROR_RESPONSES from AppError classes
 APP_ERROR_TYPES: tuple[type[AppError], ...] = (
     BadRequestError,
@@ -194,6 +216,8 @@ APP_ERROR_TYPES: tuple[type[AppError], ...] = (
     RateLimitedError,
     InternalError,
     ServiceUnavailableError,
+    UpstreamError,
+    LocalProvisioningFailedError,
 )
 
 PROBLEM_REGISTRY: dict[int, tuple[str, str]] = {
