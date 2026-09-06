@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     zitadel_issuer: str = "http://zitadel:8080"
     zitadel_project_id: str = ""
 
+    zitadel_management_client_id: str = ""
+    zitadel_management_client_secret: str = ""
+    zitadel_http_timeout_seconds: float = 5.0
+
     @property
     def oidc_discovery_url(self) -> str:
         return f"{self.zitadel_issuer}/.well-known/openid-configuration"

@@ -52,7 +52,7 @@ class TenanantProvisioningAttempt(Base):
     __tablename__ = "tenant_provisioning_attempts"
 
     idempotency_key: Mapped[str] = mapped_column(String(255), primary_key=True)
-    zitadel_org_id: Mapped[str | None] = mapped_column(String(255), nullable=False)
+    zitadel_org_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tenant_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("tenants.id"), nullable=True
     )
