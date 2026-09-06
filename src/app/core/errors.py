@@ -217,7 +217,6 @@ APP_ERROR_TYPES: tuple[type[AppError], ...] = (
     InternalError,
     ServiceUnavailableError,
     UpstreamError,
-    LocalProvisioningFailedError,
 )
 
 PROBLEM_REGISTRY: dict[int, tuple[str, str]] = {

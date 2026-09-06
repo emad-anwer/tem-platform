@@ -111,11 +111,12 @@ class TenantProvisioningService:
     async def _finish_local_insert(
         self, attempt: TenantProvisioningAttempt, *, name: str, slug: str, org_id: str
     ) -> Tenant:
+        idempotency_key = attempt.idempotency_key
         try:
             tenant = await self._tenants.create(
                 name=name, slug=slug, zitadel_org_id=org_id
             )
-        except IntegrityError:
+        except IntegrityError as e:
             await self._session.rollback()
 
             winner = await self._tenants.get_by_zitadel_org_id(org_id)
@@ -127,9 +128,14 @@ class TenantProvisioningService:
                 await self._session.refresh(winner)
                 return winner
 
+            if "slug" in str(e):
+                raise ConflictError(
+                    detail=f"Tenant slug '{slug}' already exists."
+                ) from e
+
             logger.error(
                 "tenant_provisioning_local_insert_failed",
-                idempotency_key=attempt.idempotency_key,
+                idempotency_key=idempotency_key,
                 zitadel_org_id=org_id,
                 tenant_name=name,
             )
