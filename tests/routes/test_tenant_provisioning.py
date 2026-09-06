@@ -207,12 +207,7 @@ async def test_local_insert_failure_leaves_orphan_and_retry_reuses_org(
     assert attempt.status == ProvisioningStatus.ORG_CREATED  # ...but nothing local
     assert attempt.zitadel_org_id == "org-1"
 
-    error_logs = [
-        r
-        for r in caplog.records
-        if "tenant_provisioning_local_insert_failed" in r.getMessage()
-    ]
-    assert error_logs
+    assert "tenant_provisioning_local_insert_failed" in caplog.text
 
     second = await client.post("/api/v1/tenants", json=payload, headers=headers)
     assert second.status_code == 200
