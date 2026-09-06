@@ -1,5 +1,6 @@
 import os
 import time
+from collections.abc import AsyncGenerator
 from uuid import uuid4
 
 import pytest
@@ -15,6 +16,12 @@ from app.core.auth.token_verifier import JWKSCache, TokenVerifier
 from app.core.db import get_db
 from app.core.main import create_app
 from app.core.models import Base
+from app.core.zitadel.client import (
+    ZitadelApiError,
+    ZitadelOrganization,
+    ZitadelUnavailableError,
+    get_zitadel_client,
+)
 
 pytest_plugins = ["auth_fixtures"]
 
@@ -66,6 +73,9 @@ def mock_jwks_endpoint(fixture_jwks):
             return_value=Response(200, json=fixture_jwks)
         )
 
+        # Allow unmocked requests (like Zitadel token fetch in E2E tests) to hit the network
+        mock.route().pass_through()
+
         yield mock
 
 
@@ -80,43 +90,40 @@ def test_verifier(fixture_jwks) -> TokenVerifier:
     )
 
 
+from sqlalchemy.pool import NullPool
+
+
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def create_schema():
-    engine = create_async_engine(TEST_DATABASE_URL)
-
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-
     await engine.dispose()
     yield
 
 
-@pytest.fixture
-def app():
-    return create_app()
-
-
 @pytest_asyncio.fixture
 async def db_session(create_schema):
-    engine = create_async_engine(TEST_DATABASE_URL)
-
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     try:
         async with engine.connect() as conn:
             await conn.begin()
-
             session_maker = async_sessionmaker(
                 bind=conn,
                 expire_on_commit=False,
                 join_transaction_mode="create_savepoint",
             )
-
             async with session_maker() as session:
                 yield session
-
             await conn.rollback()
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+def app():
+    return create_app()
 
 
 @pytest_asyncio.fixture
@@ -156,3 +163,37 @@ async def client(app, db_session: AsyncSession):
     ) as async_client:
         yield async_client
     app.dependency_overrides.clear()
+
+
+class FakeZitadelClient:
+    """Stands in for ZitadelManagementClient at the get_zitadel_client seam.
+
+    `fail` is a plain mutable attribute (not a constructor-only flag) so a
+    test can flip it mid-test — e.g. fail once, then let a retry succeed —
+    without needing a second fixture instance.
+    """
+
+    def __init__(self) -> None:
+        self.fail: str | None = None  # None | "unreachable" | "api_error"
+        self.calls: list[str] = []
+        self._next_id = 1
+
+    async def create_organization(self, *, name: str) -> ZitadelOrganization:
+        if self.fail == "unreachable":
+            raise ZitadelUnavailableError("simulated network failure")
+        if self.fail == "api_error":
+            raise ZitadelApiError("simulated rejection", status_code=400, body="{}")
+
+        self.calls.append(name)
+
+        org = ZitadelOrganization(org_id=f"org-{self._next_id}", name=name)
+        self._next_id += 1
+        return org
+
+
+@pytest_asyncio.fixture
+async def zitadel(app, client) -> AsyncGenerator[FakeZitadelClient, None]:
+    fake = FakeZitadelClient()
+    app.dependency_overrides[get_zitadel_client] = lambda: fake
+    yield fake
+    del app.dependency_overrides[get_zitadel_client]

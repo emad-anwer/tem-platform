@@ -12,6 +12,12 @@ from app.core.logging import setup_logging
 from app.core.middlewares.request_id import RequestIDMiddleware
 from app.core.redis import dispose_redis, wait_for_redis
 from app.core.routes import router as tenant_router
+from app.core.zitadel.client import (
+    ZitadelApiError,
+    ZitadelUnavailableError,
+    dispose_zitadel_client,
+    wait_for_zitadel,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -30,6 +36,12 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "Redis startup check failed; continuing without cache/queue support."
         )
+    try:
+        await wait_for_zitadel()
+    except (ZitadelApiError, ZitadelUnavailableError):
+        logger.warning(
+            "Zitadel startup check failed; continuing without identity management support."
+        )
     yield
     try:
         await dispose_redis()
@@ -39,6 +51,10 @@ async def lifespan(app: FastAPI):
         await dispose_engine()
     except SQLAlchemyError:
         logger.warning("Database engine shutdown failed gracefully.")
+    try:
+        await dispose_zitadel_client()
+    except (ZitadelApiError, ZitadelUnavailableError):
+        logger.warning("Zitadel client shutdown failed gracefully.")
     logger.info("Shutting down the application...")
 
 

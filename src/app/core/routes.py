@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 
 from app.core.auth.permissions import Permission, require_permission
-from app.core.errors import BadRequestError, ConflictError, NotFoundError
+from app.core.errors import (
+    BadRequestError,
+    NotFoundError,
+    ServiceUnavailableError,
+    UpstreamError,
+)
+from app.core.provisioning.service import (
+    TenantProvisioningService,
+    get_tenant_provisioning_service,
+)
 from app.core.schemas import (
     TenantCollectionDocument,
     TenantCreateRequest,
@@ -15,8 +25,11 @@ from app.core.schemas import (
     TenantResource,
 )
 from app.core.service import TenantService, get_tenant_service
+from app.core.zitadel.client import ZitadelApiError, ZitadelUnavailableError
 
 router = APIRouter(prefix="/api/v1", tags=["tenants"])
+
+IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,255}$")
 
 
 @router.post(
@@ -24,24 +37,35 @@ router = APIRouter(prefix="/api/v1", tags=["tenants"])
     response_model=TenantDocument,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission(Permission.TENANT_CREATE))],
-    responses={
-        201: {"description": "Tenant created"},
-        409: {"description": "Duplicate tenant slug"},
-        422: {"description": "Validation failed"},
-    },
 )
 async def create_tenant(
     payload: TenantCreateRequest,
     response: Response,
-    service: Annotated[TenantService, Depends(get_tenant_service)],
+    service: Annotated[
+        TenantProvisioningService, Depends(get_tenant_provisioning_service)
+    ],
+    idempotency_key: Annotated[str, Header(..., alias="Idempotency-Key")],
 ) -> TenantDocument:
-    try:
-        tenant = await service.create_tenant(name=payload.name, slug=payload.slug)
-    except ValueError as exc:
-        raise ConflictError(detail=str(exc)) from exc
+    if not IDEMPOTENCY_KEY_PATTERN.match(idempotency_key):
+        raise BadRequestError(
+            detail="Idempotency-Key must be 1-255 chars of [A-Za-z0-9._-]."
+        )
 
-    tenant_id = getattr(tenant, "id", None)
-    response.headers["Location"] = f"/api/v1/tenants/{tenant_id}"
+    try:
+        result = await service.provision_tenant(
+            name=payload.name, slug=payload.slug, idempotency_key=idempotency_key
+        )
+        tenant = result.tenant
+        created = result.created
+    except ZitadelUnavailableError as exc:
+        raise ServiceUnavailableError(
+            detail="Identity provider is unreachable."
+        ) from exc
+    except ZitadelApiError as exc:
+        raise UpstreamError(detail="Identity provider rejected the request.") from exc
+
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    response.headers["Location"] = f"/api/v1/tenants/{tenant.id}"
     return TenantDocument(data=TenantResource.from_tenant(tenant))
 
 

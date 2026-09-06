@@ -62,6 +62,16 @@ class Settings(BaseSettings):
     zitadel_issuer: str = "http://zitadel:8080"
     zitadel_project_id: str = ""
 
+    zitadel_management_client_id: str = ""
+    zitadel_management_client_secret: str = ""
+    zitadel_http_timeout_seconds: float = 5.0
+
+    # Dev-only bootstrap credential per ADR-0002 ("POST /tenants — closing the
+    # open door"): lets the very first tenant be created before any Zitadel
+    # org/user exists to hold platform_admin. A static secret, not a JWT.
+    # Empty by default (disabled); only ever honored when environment == "dev".
+    bootstrap_admin_token: str = ""
+
     @property
     def oidc_discovery_url(self) -> str:
         return f"{self.zitadel_issuer}/.well-known/openid-configuration"
