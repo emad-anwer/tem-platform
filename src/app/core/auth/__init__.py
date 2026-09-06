@@ -11,6 +11,12 @@ from app.core.auth.context import (
     set_current_principal,
 )
 from app.core.auth.dependencies import get_principal
+from app.core.auth.permissions import (
+    PERMISSION_MATRIX,
+    Permission,
+    require_permission,
+    require_role,
+)
 from app.core.auth.principal import Principal, Role
 from app.core.auth.token_verifier import (
     TokenVerificationError,
@@ -20,6 +26,8 @@ from app.core.auth.token_verifier import (
 )
 
 __all__ = [
+    "PERMISSION_MATRIX",
+    "Permission",
     "Principal",
     "Role",
     "TokenVerificationError",
@@ -29,6 +37,8 @@ __all__ = [
     "get_current_principal",
     "get_principal",
     "get_token_verifier",
+    "require_permission",
+    "require_role",
     "reset_current_principal",
     "set_current_principal",
 ]
