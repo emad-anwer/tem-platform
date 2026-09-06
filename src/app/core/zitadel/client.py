@@ -60,6 +60,7 @@ class ZitadelManagementClient:
                     "grant_type": "client_credentials",
                     "client_id": self.settings.zitadel_management_client_id,
                     "client_secret": self.settings.zitadel_management_client_secret,
+                    "scope": "openid urn:zitadel:iam:org:project:id:zitadel:aud",
                 },
             )
         except httpx.HTTPError as exc:

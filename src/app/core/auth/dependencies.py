@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.auth.context import set_current_principal
-from app.core.auth.principal import Principal
+from app.core.auth.principal import Principal, Role
 from app.core.auth.token_verifier import (
     TokenVerificationError,
     TokenVerifier,
@@ -19,6 +19,8 @@ from app.core.auth.token_verifier import (
 )
 from app.core.db import get_db
 from app.core.repository import TenantRepository
+import uuid
+from app.core.config import get_settings
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -36,6 +38,9 @@ def _unauthorized(detail: str) -> HTTPException:
     )
 
 
+_BOOTSTRAP_TENANT_ID = uuid.UUID(int=0)
+
+
 async def get_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -46,6 +51,20 @@ async def get_principal(
     """Verify credentials, resolve the tenant, and publish a Principal."""
     if credentials is None or not credentials.credentials:
         raise _unauthorized("Authentication credentials are required.")
+
+    settings = get_settings()
+    if (
+        settings.environment == "dev"
+        and settings.bootstrap_admin_token
+        and credentials.credentials == settings.bootstrap_admin_token
+    ):
+        principal = Principal(
+            user_id="bootstrap-admin",
+            tenant_id=_BOOTSTRAP_TENANT_ID,
+            role=Role.PLATFORM_ADMIN,
+        )
+        set_current_principal(principal)
+        return principal
 
     try:
         verifier = await run_in_threadpool(verifier_factory)

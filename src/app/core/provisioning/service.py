@@ -51,7 +51,7 @@ class TenantProvisioningService:
         except IntegrityError:
             # The key has already been claimed, so we need to check if the attempt was successful or not.
             await self._session.rollback()
-            return await self._resume(idempotency_key)
+            return await self._resume(idempotency_key, name=name, slug=slug)
 
         try:
             org = await self._zitadel.create_organization(name=name)
