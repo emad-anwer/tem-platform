@@ -20,6 +20,8 @@ Dockerfile*
 compose.yaml
 docker-compose*
 .just
+# never ship lab TLS private keys in the build context
+lab/tls/certs
 
 !compose.yaml
 !docs/**

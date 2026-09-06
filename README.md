@@ -361,10 +361,17 @@ Create test files under `tests/`:
 The `lab/` directory contains four pre-configured web servers used as scan targets for ASM development and testing. They run under a separate Docker Compose profile so they don't start by default.
 
 ```bash
-just lab-up       # start lab services
+just lab-up       # start lab services (auto-generates the TLS SAN cert first run)
 just lab-down     # stop lab services
 just lab-logs     # follow lab logs
+just lab-certs    # (re)generate the lab-tls-san certificate; idempotent
 ```
+
+> [!Note]
+> `just lab-up` depends on `just lab-certs`, which generates the self-signed multi-SAN certificate
+> for `lab-tls-san` when it's missing (e.g. on a fresh clone) — no manual steps needed. The
+> certificate and key live in `lab/tls/certs/` and are gitignored. Requires **OpenSSL** on the host
+> (already needed for the `openssl s_client` verification command in `docs/target-lab.md`).
 
 | Target | Port | Description |
 |---|---|---|

@@ -42,31 +42,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down the application...")
 
 
-# def _problem_response(
-#     request: Request,
-#     status_code: int,
-#     title: str,
-#     detail: str,
-#     problem_type: str,
-#     *,
-#     errors: list[dict[str, str]] | None = None,
-# ) -> JSONResponse:
-#     payload = build_problem_details(
-#         request=request,
-#         status=status_code,
-#         title=title,
-#         detail=detail,
-#         problem_type=problem_type,
-#         errors=errors,
-#     )
-
-#     return JSONResponse(
-#         status_code=status_code,
-#         content=payload,
-#         media_type="application/problem+json",
-#     )
-
-
 def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings.log_level)

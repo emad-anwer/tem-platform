@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -22,6 +23,11 @@ from app.core.repository import TenantRepository
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def get_verifier_factory() -> Callable[[], TokenVerifier]:
+    """Provide lazy verifier construction so unauthenticated requests fail fast."""
+    return get_token_verifier
+
+
 def _unauthorized(detail: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -33,13 +39,16 @@ def _unauthorized(detail: str) -> HTTPException:
 async def get_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[AsyncSession, Depends(get_db)],
-    verifier: Annotated[TokenVerifier, Depends(get_token_verifier)],
+    verifier_factory: Annotated[
+        Callable[[], TokenVerifier], Depends(get_verifier_factory)
+    ],
 ) -> Principal:
     """Verify credentials, resolve the tenant, and publish a Principal."""
     if credentials is None or not credentials.credentials:
         raise _unauthorized("Authentication credentials are required.")
 
     try:
+        verifier = await run_in_threadpool(verifier_factory)
         claims = await run_in_threadpool(verifier.verify, credentials.credentials)
     except TokenVerificationError as exc:
         raise _unauthorized("Invalid authentication credentials.") from exc

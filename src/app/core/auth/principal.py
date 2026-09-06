@@ -11,6 +11,7 @@ import uuid
 
 
 class Role(enum.StrEnum):
+    PLATFORM_ADMIN = "platform_admin"
     OWNER = "owner"
     ANALYST = "analyst"
     VIEWER = "viewer"

@@ -28,8 +28,18 @@ logs:
 logs-app:
     docker compose logs -f app
 
-# start the target lab services (4 scan targets)
-lab-up:
+# generate lab TLS SAN certificates if missing (idempotent) so a clean clone works
+lab-certs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -f lab/tls/certs/server.crt && -f lab/tls/certs/server.key ]]; then
+        echo "Lab TLS certificates already exist; skipping generation."
+    else
+        ./lab/tls/generate_certs.sh
+    fi
+
+# start the target lab services (4 scan targets); generates TLS certs first if needed
+lab-up: lab-certs
     docker compose --profile lab up -d
 
 # stop the target lab services
