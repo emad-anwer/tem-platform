@@ -27,6 +27,9 @@ Unlike live internet hosts which may change, rate limit, or go offline unexpecte
 The Target Lab is isolated under the Docker Compose `lab` profile so that standard application development (`just up`) does not launch scan fixtures unnecessarily.
 
 ```bash
+# Generate the lab-tls-san certificate (idempotent; `lab-up` does this automatically)
+just lab-certs
+
 # Start all 4 target lab services in detached mode
 just lab-up
 
@@ -36,6 +39,13 @@ just lab-logs
 # Stop and remove target lab containers
 just lab-down
 ```
+
+> **TLS certificates:** `just lab-up` depends on `lab-certs`, which generates the self-signed
+> multi-SAN certificate for `lab-tls-san` on first run if it's missing, so a clean clone works
+> with no manual steps. The cert/key live in `lab/tls/certs/` and are gitignored. Re-run
+> `just lab-certs` to regenerate them after deleting `lab/tls/certs/server.crt` and
+> `lab/tls/certs/server.key`. This requires **OpenSSL** on the host (already needed for the
+> `openssl s_client` verification command below).
 
 ---
 
