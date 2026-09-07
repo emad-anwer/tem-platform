@@ -1,7 +1,11 @@
 # API Conventions
 
-**Status:** agreed in Week 1 (W1-02) · **Applies from:** `/api/v1` onward  
 **Authors:** Arwa Hazem, Tasneem Mohamed, Zyad Mohamed, Islam Abdelslam
+**Owner:** Arwa Hazem · **Reviewer:** Zyad Mohamed
+
+This document retroactively records a contract decision. Zyad (or the current mentor) must
+confirm that the JSON:API and cursor-pagination conventions apply to every future endpoint,
+including ASM and threat-intelligence endpoints, rather than only the tenant endpoints.
 
 This document is the contract every endpoint must follow. If behaviour is not specified here,
 ask on the issue before implementing — do not invent a local convention.
@@ -113,7 +117,7 @@ Rules:
   unless revealing existence is itself a security concern (then 404 is acceptable — document which
   applies per resource on the issue).
 
-### 401 vs 403 vs 404
+### 401 vs 403
 
 This distinction is fixed for the whole project:
 
@@ -121,26 +125,11 @@ This distinction is fixed for the whole project:
 |---|---|---|
 | **401 Unauthorized** | *Who are you?* Authentication failed or is absent. | No `Authorization` header, expired JWT, invalid API key |
 | **403 Forbidden** | *I know who you are; you can't do this.* Authorization failed. | Viewer role calling a delete endpoint, token valid but for a different tenant |
-| **404 Not Found** | The addressed resource does not exist. | The UUID is genuinely absent, or the resource deliberately hides its existence under a documented security policy |
 
 FastAPI mapping:
 
 - Missing/invalid credentials → 401
 - Valid credentials, insufficient permission → 403
-
-For tenant-scoped resources, a valid token for tenant A addressing an existing
-resource belonging to tenant B returns **403**, not 404. Tenant IDs already
-appear in resource URLs and `Location` headers, so hiding the existence of a
-known resource provides no meaningful protection here. Returning 403 makes the
-authorization failure explicit and lets clients distinguish "exists but I am
-not allowed" from "does not exist." A genuinely absent resource returns 404.
-
-This is the ADR-0002 decision. A resource may use 404 to hide existence only
-when that resource's issue explicitly documents why disclosure is a security
-concern; it must not be chosen inconsistently by individual handlers.
-
-All three outcomes use the RFC 9457 error envelope. Authentication failures
-also include `WWW-Authenticate: Bearer`.
 
 ### Success headers
 
@@ -218,48 +207,81 @@ ad-hoc error JSON — raise typed exceptions and let the global handler format t
 
 ---
 
+## Resource and collection responses
+
+Successful resource responses use a JSON:API-style document. A single resource has `data` with
+its resource `type`, server-generated `id`, and domain fields under `attributes`:
+
+```json
+{
+  "data": {
+    "type": "tenants",
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "attributes": {
+      "name": "Acme Corp",
+      "slug": "acme-corp",
+      "is_active": true,
+      "created_at": "2026-08-25T09:00:00Z"
+    }
+  }
+}
+```
+
+Collection responses use the same resource objects in a `data` array and include pagination
+links. Do not introduce an `items`/`pagination` envelope.
+
+```json
+{
+  "data": [
+    {
+      "type": "tenants",
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "attributes": { "name": "Acme Corp", "slug": "acme-corp" }
+    }
+  ],
+  "links": {
+    "self": "/api/v1/tenants?size=20",
+    "next": "/api/v1/tenants?size=20&cursor=opaque-token"
+  }
+}
+```
+
+`links.next` is `null` on the final page. Resource `type` values are stable plural nouns, `id`
+values are UUID strings, and resource fields belong in `attributes` rather than beside `id`.
+
 ## Pagination
 
-List endpoints use **limit/offset** pagination in v1.
+List endpoints use **cursor pagination**. The HTTP API accepts `size` and `cursor`; the repository
+method uses the equivalent internal names `limit` and `cursor` and returns `(items, next_cursor)`.
 
 ### Query parameters
 
 | Param | Type | Default | Max | Description |
 |---|---|---|---|---|
-| `limit` | integer | `20` | `100` | Page size |
-| `offset` | integer | `0` | — | Number of items to skip |
+| `size` | integer | `20` | `100` | Number of resources to return |
+| `cursor` | string | omitted | — | Opaque position returned by the previous page's `links.next` URL |
 
-Requests with `limit > 100` return **400** with a validation error.
+Requests with `size > 100` return **400** with a validation error. Clients must treat cursors as
+opaque: they must not decode, edit, or manufacture them. A cursor is valid only with the same
+resource collection and ordering that produced it.
 
-### Response wrapper
+The repository fetches `limit + 1` rows to determine whether another page exists. It returns at
+most `limit` rows and sets `next_cursor` to an encoded ordering key when more rows remain;
+otherwise `next_cursor` is `None`. The tenant implementation orders by `(name, id)` to keep the
+cursor position deterministic.
 
-```json
-{
-  "items": [
-    { "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "name": "Acme Corp" }
-  ],
-  "pagination": {
-    "limit": 20,
-    "offset": 0,
-    "total": 142
-  }
-}
-```
+### Why cursor pagination and JSON:API (Option B)
 
-| Field | Description |
-|---|---|
-| `items` | Array of resources for this page (never null — use `[]`) |
-| `pagination.limit` | Applied page size |
-| `pagination.offset` | Applied offset |
-| `pagination.total` | Total matching items across all pages |
+Cursor pagination was chosen over offset pagination because findings, events, and other module
+data can change frequently between requests. Offsets can skip or repeat records when rows are
+inserted or removed ahead of the current offset; a cursor continues from a deterministic ordered
+position and avoids a potentially expensive count query. The same approach also works as the
+collections grow beyond the initial tenant-sized data set.
 
-### Why limit/offset (not cursor) in v1
-
-- Simple to implement against Postgres for tenant-sized collections in weeks 1–3
-- Good enough for early endpoints (tenants, users, targets)
-- High-volume collections (findings, events) may add cursor pagination in a later issue if
-  offset performance or consistency becomes a problem — that would be a v1 extension, not a
-  breaking change, if the default remains limit/offset
+JSON:API was adopted to give every endpoint a consistent document shape, explicit typed resource
+identification (`type` and `id`), and a predictable path for future integrations that need to
+discover and handle different resource types. This is a contract decision for future endpoints,
+not a tenant-specific response style.
 
 ---
 
@@ -390,7 +412,7 @@ Before opening a PR for any endpoint (from W1-07 onward):
 - [ ] 201 + `Location` header on create
 - [ ] 204 empty body on delete
 - [ ] Errors via RFC 9457 problem details — no custom error shapes
-- [ ] List endpoints paginated with `items` + `pagination` wrapper
+- [ ] List endpoints use JSON:API `data` resources with cursor pagination (`size`, `cursor`, and `links.next`)
 - [ ] snake_case fields, UUID string IDs, UTC ISO 8601 timestamps
 - [ ] 401 vs 403 used correctly
 - [ ] Tests cover success path and at least one error path
