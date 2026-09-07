@@ -113,7 +113,7 @@ Rules:
   unless revealing existence is itself a security concern (then 404 is acceptable — document which
   applies per resource on the issue).
 
-### 401 vs 403
+### 401 vs 403 vs 404
 
 This distinction is fixed for the whole project:
 
@@ -121,11 +121,26 @@ This distinction is fixed for the whole project:
 |---|---|---|
 | **401 Unauthorized** | *Who are you?* Authentication failed or is absent. | No `Authorization` header, expired JWT, invalid API key |
 | **403 Forbidden** | *I know who you are; you can't do this.* Authorization failed. | Viewer role calling a delete endpoint, token valid but for a different tenant |
+| **404 Not Found** | The addressed resource does not exist. | The UUID is genuinely absent, or the resource deliberately hides its existence under a documented security policy |
 
 FastAPI mapping:
 
 - Missing/invalid credentials → 401
 - Valid credentials, insufficient permission → 403
+
+For tenant-scoped resources, a valid token for tenant A addressing an existing
+resource belonging to tenant B returns **403**, not 404. Tenant IDs already
+appear in resource URLs and `Location` headers, so hiding the existence of a
+known resource provides no meaningful protection here. Returning 403 makes the
+authorization failure explicit and lets clients distinguish "exists but I am
+not allowed" from "does not exist." A genuinely absent resource returns 404.
+
+This is the ADR-0002 decision. A resource may use 404 to hide existence only
+when that resource's issue explicitly documents why disclosure is a security
+concern; it must not be chosen inconsistently by individual handlers.
+
+All three outcomes use the RFC 9457 error envelope. Authentication failures
+also include `WWW-Authenticate: Bearer`.
 
 ### Success headers
 
