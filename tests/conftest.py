@@ -10,7 +10,7 @@ from auth_fixtures import FIXTURE_ISSUER, FIXTURE_PROJECT_ID
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.auth.dependencies import get_principal
+from app.core.auth.dependencies import get_principal, get_verifier_factory
 from app.core.auth.principal import Principal, Role
 from app.core.auth.token_verifier import JWKSCache, TokenVerifier
 from app.core.db import get_db
@@ -156,6 +156,29 @@ async def client(app, db_session: AsyncSession):
         role=Role.PLATFORM_ADMIN,
     )
     app.dependency_overrides[get_db] = override_get_db
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as async_client:
+        yield async_client
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def auth_client(app, db_session: AsyncSession, test_verifier):
+    """Authenticated client exercising the real verify→lookup→Principal path.
+
+    Overrides only the JWKS-backed verifier factory and the DB session.
+    Never overrides `get_principal` — the real authentication code must run.
+    Property-first: tests assert HTTP status/body, never repository internals.
+    """
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_verifier_factory] = lambda: lambda: test_verifier
 
     transport = ASGITransport(app=app)
     async with AsyncClient(
