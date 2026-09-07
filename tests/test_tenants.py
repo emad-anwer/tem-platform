@@ -51,15 +51,24 @@ async def test_get_tenant_by_id(client: AsyncClient, zitadel) -> None:
 
 
 async def test_list_returns_created_tenant(client: AsyncClient, zitadel) -> None:
-    await client.post(
-        "/api/v1/tenants",
-        json={"name": "List Me", "slug": "list-me"},
-        headers={"Idempotency-Key": "existing-list-1"},
-    )
+    for index in range(3):
+        await client.post(
+            "/api/v1/tenants",
+            json={"name": f"List Me {index}", "slug": f"list-me-{index}"},
+            headers={"Idempotency-Key": f"existing-list-{index}"},
+        )
 
-    response = await client.get("/api/v1/tenants")
+    response = await client.get("/api/v1/tenants", params={"size": 1})
     assert response.status_code == 200
     payload = response.json()
 
-    slugs = [item["attributes"]["slug"] for item in payload["data"]]
-    assert "list-me" in slugs
+    assert len(payload["data"]) == 1
+    assert payload["links"]["next"] is not None
+
+    next_response = await client.get(payload["links"]["next"])
+    assert next_response.status_code == 200
+    next_payload = next_response.json()
+
+    assert len(next_payload["data"]) == 1
+    assert next_payload["data"][0]["id"] != payload["data"][0]["id"]
+    assert next_payload["links"]["self"].startswith("/api/v1/tenants?size=1&cursor=")

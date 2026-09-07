@@ -1,5 +1,6 @@
 # API Conventions
 
+**Status:** needs-mentor-review · **Applies from:** `/api/v1` onward
 **Authors:** Arwa Hazem, Tasneem Mohamed, Zyad Mohamed, Islam Abdelslam
 **Owner:** Arwa Hazem · **Reviewer:** Zyad Mohamed
 
