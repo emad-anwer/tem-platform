@@ -8,6 +8,7 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.context import get_current_principal
+from app.core.auth.principal import Principal, Role
 from app.core.models import Tenant
 from app.core.pagination import decode_cursor, encode_cursor
 
@@ -226,9 +227,23 @@ class TenantRepository:
         return result.scalar_one_or_none()
 
     async def list(
-        self, *, limit: int = 20, cursor: str | None = None
+        self,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        principal: Principal | None = None,
     ) -> tuple[Sequence[Tenant], str | None]:
+        """List tenants. Non-admins only ever see their own tenant (one row);
+        PLATFORM_ADMIN sees the full platform list — no other route exposes
+        full-platform enumeration.
+        """
+        if principal is None:
+            raise MissingTenantContextError(
+                "TenantRepository.list() requires a Principal for tenant scoping."
+            )
         stmt = select(Tenant).order_by(Tenant.name, Tenant.id).limit(limit + 1)
+        if principal.role != Role.PLATFORM_ADMIN:
+            stmt = stmt.where(Tenant.id == principal.tenant_id)
         if cursor is not None:
             name, tenant_id = self._decode_cursor(cursor)
             stmt = stmt.where(tuple_(Tenant.name, Tenant.id) > (name, tenant_id))
