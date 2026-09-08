@@ -256,12 +256,12 @@ async def test_auth_matrix_401(
 
     resp = await _request(auth_client, method, path, headers, two_tenants)
 
-    assert (
-        resp.status_code == 401
-    ), f"[{variant}] {method} {path} → expected 401, got {resp.status_code}"
-    assert (
-        resp.headers.get("www-authenticate") == "Bearer"
-    ), f"[{variant}] {method} {path} → missing WWW-Authenticate: Bearer"
+    assert resp.status_code == 401, (
+        f"[{variant}] {method} {path} → expected 401, got {resp.status_code}"
+    )
+    assert resp.headers.get("www-authenticate") == "Bearer", (
+        f"[{variant}] {method} {path} → missing WWW-Authenticate: Bearer"
+    )
     body = resp.json()
     assert body["status"] == 401
     assert resp.headers["content-type"].startswith("application/problem+json")
@@ -293,9 +293,9 @@ async def test_wrong_role_on_post_tenants(
         headers={**headers, **_idempotency()},
     )
     # TENANT_CREATE is PLATFORM_ADMIN-only → 403.
-    assert (
-        resp.status_code == 403
-    ), f"[role={role}] expected 403, got {resp.status_code}"
+    assert resp.status_code == 403, (
+        f"[role={role}] expected 403, got {resp.status_code}"
+    )
     assert resp.json()["status"] == 403
     assert resp.headers["content-type"].startswith("application/problem+json")
 
@@ -328,9 +328,9 @@ async def test_viewer_can_read_own_tenant(
     tenant_a, _ = two_tenants
     headers = _headers_for(make_token_fn, tenant_a.zitadel_org_id, role="viewer")
     resp = await _request(auth_client, method, path, headers, two_tenants)
-    assert (
-        resp.status_code == 200
-    ), f"[viewer] {method} {path} → expected 200, got {resp.status_code}"
+    assert resp.status_code == 200, (
+        f"[viewer] {method} {path} → expected 200, got {resp.status_code}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -362,15 +362,15 @@ async def test_bola_get_tenant_by_id(
 
     headers = _headers_for(make_token_fn, caller_org, role="owner")
     resp = await auth_client.get(f"/api/v1/tenants/{target.id}", headers=headers)
-    assert (
-        resp.status_code == 403
-    ), f"[{direction}] expected 403 for cross-tenant read, got {resp.status_code}"
+    assert resp.status_code == 403, (
+        f"[{direction}] expected 403 for cross-tenant read, got {resp.status_code}"
+    )
     assert resp.json()["status"] == 403
     assert resp.headers["content-type"].startswith("application/problem+json")
     # No data leak — target slug must not appear anywhere in the response body.
-    assert (
-        target.slug not in resp.text
-    ), f"[{direction}] target slug '{target.slug}' leaked in 403 response"
+    assert target.slug not in resp.text, (
+        f"[{direction}] target slug '{target.slug}' leaked in 403 response"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -405,9 +405,9 @@ async def test_bola_list_isolation(
     assert resp.status_code == 200
     slugs = [item["attributes"]["slug"] for item in resp.json()["data"]]
     assert own_slug in slugs, f"[{direction}] own slug '{own_slug}' missing from list"
-    assert (
-        other_slug not in slugs
-    ), f"[{direction}] other tenant slug '{other_slug}' leaked into list"
+    assert other_slug not in slugs, (
+        f"[{direction}] other tenant slug '{other_slug}' leaked into list"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -460,16 +460,16 @@ def test_allowlist_is_fail_closed() -> None:
     """
     for key, entry in ALLOWLIST.items():
         method, _path = key
-        assert (
-            isinstance(method, str) and method.isupper()
-        ), f"Method in allowlist key must be uppercase string: {key}"
+        assert isinstance(method, str) and method.isupper(), (
+            f"Method in allowlist key must be uppercase string: {key}"
+        )
         assert entry.get("reason"), f"Allowlist entry {key!r} missing 'reason'"
-        assert entry.get(
-            "reviewed_by"
-        ), f"Allowlist entry {key!r} missing 'reviewed_by'"
-        assert (
-            entry.get("safe_methods_only") is True
-        ), f"Allowlist entry {key!r}: 'safe_methods_only' must be True"
+        assert entry.get("reviewed_by"), (
+            f"Allowlist entry {key!r} missing 'reviewed_by'"
+        )
+        assert entry.get("safe_methods_only") is True, (
+            f"Allowlist entry {key!r}: 'safe_methods_only' must be True"
+        )
         assert method in {"GET", "HEAD", "OPTIONS"}, (
             f"Unsafe method allowlisted without mentor review: {key!r}. "
             "POST/PATCH/DELETE routes require an isolation test, not an allowlist entry."
@@ -499,9 +499,9 @@ def test_route_coverage(app) -> None:
         method, _ = key
         assert entry.get("reason"), f"allowlist entry missing reason: {key}"
         assert entry.get("reviewed_by"), f"allowlist entry missing reviewed_by: {key}"
-        assert (
-            entry.get("safe_methods_only") is True
-        ), f"allowlist entry missing safe_methods_only=True: {key}"
+        assert entry.get("safe_methods_only") is True, (
+            f"allowlist entry missing safe_methods_only=True: {key}"
+        )
         assert method in {
             "GET",
             "HEAD",
