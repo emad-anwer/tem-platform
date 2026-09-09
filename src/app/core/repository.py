@@ -20,6 +20,52 @@ class MissingTenantContextError(RuntimeError):
     """Raised when an operation requires a tenant context but none is present."""
 
 
+def _coerce_uuid(value: UUID | str, param_name: str) -> UUID:
+    """Coerce a UUID | str parameter to UUID for safe comparison against UUID columns.
+
+    asyncpg returns empty results when a string is compared directly against a
+    UUID column; normalising here keeps repository signatures ergonomic while
+    ensuring correct query behaviour.
+    """
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid UUID for {param_name!r}.") from exc
+
+
+class CreatedAtIdCursor:
+    """Shared created_at + id cursor implementation for tenant-scoped repositories.
+
+    Provides the standard cursor column trio (created_at, id) used by
+    TargetRepository, ScanRunRepository, and FindingRepository, eliminating
+    triplicated encode/decode logic.
+    """
+
+    @staticmethod
+    def columns(model: type[Any]) -> tuple[Any, ...]:
+        """Return the cursor column tuple for a model."""
+        return (model.created_at, model.id)
+
+    @staticmethod
+    def encode(entity: Any) -> str:
+        """Encode an entity's cursor values into an opaque string."""
+        return encode_cursor([entity.created_at.isoformat(), str(entity.id)])
+
+    @staticmethod
+    def decode(cursor: str) -> tuple[datetime, UUID]:
+        """Decode an opaque cursor string back into (created_at, id)."""
+        values = decode_cursor(cursor)
+        if len(values) != 2:
+            raise ValueError("Invalid cursor.")
+        created_at_str, id_str = values
+        try:
+            return datetime.fromisoformat(created_at_str), UUID(id_str)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid cursor.") from exc
+
+
 class TenantScopedRepository(Generic[T]):
     """Base repository for models owned by a tenant.
 
@@ -79,7 +125,10 @@ class TenantScopedRepository(Generic[T]):
 
     async def get_by_id(self, entity_id: UUID | str) -> T | None:
         """Retrieve a single entity by its primary key, scoped to the current tenant."""
-        stmt = self._scope_select(select(self.model)).where(self.model.id == entity_id)
+        entity_uuid = _coerce_uuid(entity_id, "entity_id")
+        stmt = self._scope_select(select(self.model)).where(
+            self.model.id == entity_uuid
+        )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -267,20 +316,13 @@ class TargetRepository(TenantScopedRepository[Target]):
     model = Target
 
     def _cursor_columns(self) -> tuple[Any, ...]:
-        return (self.model.created_at, self.model.id)
+        return CreatedAtIdCursor.columns(self.model)
 
     def _encode_cursor(self, entity: Target) -> str:
-        return encode_cursor([entity.created_at.isoformat(), str(entity.id)])
+        return CreatedAtIdCursor.encode(entity)
 
     def _decode_cursor(self, cursor: str) -> tuple[datetime, UUID]:
-        values = decode_cursor(cursor)
-        if len(values) != 2:
-            raise ValueError("Invalid cursor.")
-        created_at_str, id_str = values
-        try:
-            return datetime.fromisoformat(created_at_str), UUID(id_str)
-        except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid cursor.") from exc
+        return CreatedAtIdCursor.decode(cursor)
 
     async def get_by_kind_and_value(
         self,
@@ -336,29 +378,23 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
     model = ScanRun
 
     def _cursor_columns(self) -> tuple[Any, ...]:
-        return (self.model.created_at, self.model.id)
+        return CreatedAtIdCursor.columns(self.model)
 
     def _encode_cursor(self, entity: ScanRun) -> str:
-        return encode_cursor([entity.created_at.isoformat(), str(entity.id)])
+        return CreatedAtIdCursor.encode(entity)
 
     def _decode_cursor(self, cursor: str) -> tuple[datetime, UUID]:
-        values = decode_cursor(cursor)
-        if len(values) != 2:
-            raise ValueError("Invalid cursor.")
-        created_at_str, id_str = values
-        try:
-            return datetime.fromisoformat(created_at_str), UUID(id_str)
-        except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid cursor.") from exc
+        return CreatedAtIdCursor.decode(cursor)
 
     async def get_latest_for_target(
         self,
         target_id: UUID | str,
     ) -> ScanRun | None:
         """Retrieve the most recent scan run for a given target."""
+        target_uuid = _coerce_uuid(target_id, "target_id")
         stmt = (
             self._scope_select(select(self.model))
-            .where(self.model.target_id == target_id)
+            .where(self.model.target_id == target_uuid)
             .order_by(self.model.created_at.desc(), self.model.id.desc())
             .limit(1)
         )
@@ -380,7 +416,9 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
         stmt = self._scope_select(select(self.model)).order_by(*columns)
 
         if target_id is not None:
-            stmt = stmt.where(self.model.target_id == target_id)
+            stmt = stmt.where(
+                self.model.target_id == _coerce_uuid(target_id, "target_id")
+            )
         if status is not None:
             stmt = stmt.where(self.model.status == status)
 
@@ -415,20 +453,13 @@ class FindingRepository(TenantScopedRepository[Finding]):
     model = Finding
 
     def _cursor_columns(self) -> tuple[Any, ...]:
-        return (self.model.created_at, self.model.id)
+        return CreatedAtIdCursor.columns(self.model)
 
     def _encode_cursor(self, entity: Finding) -> str:
-        return encode_cursor([entity.created_at.isoformat(), str(entity.id)])
+        return CreatedAtIdCursor.encode(entity)
 
     def _decode_cursor(self, cursor: str) -> tuple[datetime, UUID]:
-        values = decode_cursor(cursor)
-        if len(values) != 2:
-            raise ValueError("Invalid cursor.")
-        created_at_str, id_str = values
-        try:
-            return datetime.fromisoformat(created_at_str), UUID(id_str)
-        except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid cursor.") from exc
+        return CreatedAtIdCursor.decode(cursor)
 
     async def get_by_fingerprint(
         self,
@@ -459,9 +490,13 @@ class FindingRepository(TenantScopedRepository[Finding]):
         stmt = self._scope_select(select(self.model)).order_by(*columns)
 
         if target_id is not None:
-            stmt = stmt.where(self.model.target_id == target_id)
+            stmt = stmt.where(
+                self.model.target_id == _coerce_uuid(target_id, "target_id")
+            )
         if run_id is not None:
-            stmt = stmt.where(self.model.last_seen_run_id == run_id)
+            stmt = stmt.where(
+                self.model.last_seen_run_id == _coerce_uuid(run_id, "run_id")
+            )
         if kind is not None:
             stmt = stmt.where(self.model.kind == kind)
         if severity is not None:
