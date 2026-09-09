@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.models import Tenant
 from app.core.repository import MissingTenantContextError
 from tests.jobs.helpers import JobContext, run_job
-
 
 
 async def _context_probe(ctx: JobContext, *, label: str = "probe") -> dict[str, Any]:
@@ -30,9 +29,7 @@ async def _context_probe(ctx: JobContext, *, label: str = "probe") -> dict[str, 
 async def _tenant_required(ctx: JobContext) -> str:
     """Fails closed when tenant_id is absent."""
     if ctx.get("tenant_id") is None:
-        raise MissingTenantContextError(
-            "tenant_id absent from job context"
-        )
+        raise MissingTenantContextError("tenant_id absent from job context")
     return f"ok:{ctx['tenant_id']}"
 
 
@@ -66,9 +63,7 @@ async def test_real_job_executes_in_process(
     assert result["tenant_id"] == tenant.id
 
 
-async def test_context_contents(
-    db_session: AsyncSession, tenant: Tenant
-) -> None:
+async def test_context_contents(db_session: AsyncSession, tenant: Tenant) -> None:
     """The job receives job_id, job_try, enqueue_time, db, and tenant_id."""
     fixed_enqueue = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
     fixed_job_id = uuid4()
@@ -90,9 +85,7 @@ async def test_context_contents(
     assert result["has_db"] is True
 
 
-async def test_retry_simulation(
-    db_session: AsyncSession, tenant: Tenant
-) -> None:
+async def test_retry_simulation(db_session: AsyncSession, tenant: Tenant) -> None:
     """Same job_id, incremented job_try — matches arq's retry model."""
     shared_job_id = uuid4()
 
@@ -147,4 +140,6 @@ async def test_job_db_writes_visible_and_rolled_back(
         {"slug": f"harness-canary-{marker}"},
     )
     row = result.scalar_one_or_none()
-    assert row == f"harness-canary-{marker}", "write must be visible within the test transaction"
+    assert row == f"harness-canary-{marker}", (
+        "write must be visible within the test transaction"
+    )
