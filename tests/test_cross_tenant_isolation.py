@@ -12,9 +12,10 @@ Design notes
   verify→lookup→Principal path runs. Token failures produce real 401/403 from
   the production auth code, not a mock.
 
-• BOLA assertions carry xfail(strict=True): expected failures today (BOLA unfixed),
-  CI turns red if they unexpectedly pass (BOLA silently fixed). The fix PR MUST
-  remove these markers — leaving them after the fix is a CI error by design.
+• BOLA assertions carried xfail(strict=True) until the fix landed (issue #65):
+  expected failures while BOLA was unfixed, CI would go red if they
+  unexpectedly passed (BOLA silently fixed without removing the marker).
+  Markers removed here as part of the #65 fix PR — these must pass now.
 
 • 403 vs 404 for cross-tenant reads (ADR-0002 §4 + api-conventions §404-vs-403):
   - Tenant IDs appear in Location headers; hiding existence gains nothing.
@@ -183,17 +184,6 @@ async def _request(
 
 
 # ---------------------------------------------------------------------------
-# § xfail marker for BOLA assertions (BOLA fix tracked in follow-up issue)
-# ---------------------------------------------------------------------------
-
-BOLA_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="BOLA fix pending — tracked in follow-up issue #40",
-    raises=AssertionError,
-)
-
-
-# ---------------------------------------------------------------------------
 # § Test 1 — Auth matrix: 401 credential failures × every data route
 #
 # Issue requirement: "For each route: no token · expired token · tampered token
@@ -349,11 +339,6 @@ async def test_viewer_can_read_own_tenant(
 # Issue requirement (R1): "Tenant A's token, pointed at every one of tenant B's
 # resources." Parametrised A→B and B→A — isolation is not always symmetric.
 #
-# BOLA assertions are xfail(strict=True):
-#   • Expected failure (BOLA unfixed, returns 200) → xfail → CI green.
-#   • Unexpected pass (BOLA fixed, returns 403) → XPASS + strict → CI red.
-#   The fix PR MUST remove these markers. Leaving them after the fix is a CI error.
-#
 # 403 vs 404 argument (ADR-0002 + api-conventions §404-vs-403):
 #   Tenant IDs appear in Location headers; hiding existence gives no security
 #   benefit. 403 signals "resource exists but you're forbidden," which lets the
@@ -361,7 +346,6 @@ async def test_viewer_can_read_own_tenant(
 # ---------------------------------------------------------------------------
 
 
-@BOLA_XFAIL
 @pytest.mark.parametrize("direction", ["a_to_b", "b_to_a"])
 async def test_bola_get_tenant_by_id(
     auth_client: AsyncClient,
@@ -394,7 +378,6 @@ async def test_bola_get_tenant_by_id(
 # ---------------------------------------------------------------------------
 
 
-@BOLA_XFAIL
 @pytest.mark.parametrize("direction", ["a_lists", "b_lists"])
 async def test_bola_list_isolation(
     auth_client: AsyncClient,
@@ -519,9 +502,11 @@ def test_route_coverage(app) -> None:
         assert entry.get("safe_methods_only") is True, (
             f"allowlist entry missing safe_methods_only=True: {key}"
         )
-        assert method in {"GET", "HEAD", "OPTIONS"}, (
-            f"unsafe method in allowlist requires mentor review: {key}"
-        )
+        assert method in {
+            "GET",
+            "HEAD",
+            "OPTIONS",
+        }, f"unsafe method in allowlist requires mentor review: {key}"
 
     uncovered = all_keys - set(DATA_ROUTES) - set(ALLOWLIST)
     assert not uncovered, (
