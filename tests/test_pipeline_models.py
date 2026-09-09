@@ -149,6 +149,29 @@ async def test_scan_run_repository_tenant_scoping(
 
 
 @pytest.mark.asyncio
+async def test_scan_run_error_message_is_truncated(
+    db_session: AsyncSession, two_tenants
+):
+    tenant, _ = two_tenants
+    set_current_principal(
+        Principal(user_id="user-a", tenant_id=tenant.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="truncate.test", value_normalized="truncate.test"
+    )
+    repository = ScanRunRepository(db_session)
+
+    run = await repository.create(
+        target_id=target.id, max_attempts=3, error_message="x" * 2500
+    )
+    assert len(run.error_message) == 2000
+
+    updated = await repository.update(run.id, error_message="y" * 2501)
+    assert updated is not None
+    assert len(updated.error_message) == 2000
+
+
+@pytest.mark.asyncio
 async def test_finding_repository_tenant_scoping(db_session: AsyncSession, two_tenants):
     tenant_a, tenant_b = two_tenants
     now = datetime.now(UTC)

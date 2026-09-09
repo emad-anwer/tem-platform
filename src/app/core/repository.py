@@ -14,6 +14,7 @@ from app.core.models import Finding, ScanRun, Target, Tenant
 from app.core.pagination import decode_cursor, encode_cursor
 
 T = TypeVar("T")
+MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH = 2000
 
 
 class MissingTenantContextError(RuntimeError):
@@ -376,6 +377,22 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
     """Tenant-scoped repository for ScanRuns."""
 
     model = ScanRun
+
+    @staticmethod
+    def _truncate_error_message(attributes: dict[str, Any]) -> None:
+        error_message = attributes.get("error_message")
+        if error_message is not None:
+            attributes["error_message"] = error_message[
+                :MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH
+            ]
+
+    async def create(self, **attributes: Any) -> ScanRun:
+        self._truncate_error_message(attributes)
+        return await super().create(**attributes)
+
+    async def update(self, entity_id: UUID | str, **attributes: Any) -> ScanRun | None:
+        self._truncate_error_message(attributes)
+        return await super().update(entity_id, **attributes)
 
     def _cursor_columns(self) -> tuple[Any, ...]:
         return CreatedAtIdCursor.columns(self.model)

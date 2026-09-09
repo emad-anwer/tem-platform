@@ -75,30 +75,37 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("tenant_id", sa.Uuid(), nullable=False),
         sa.Column("target_id", sa.Uuid(), nullable=False),
-        sa.Column("status", sa.Text(), server_default="queued", nullable=False),
-        sa.Column("attempt", sa.Integer(), server_default="1", nullable=False),
+        sa.Column(
+            "status", sa.Text(), server_default=sa.text("'queued'"), nullable=False
+        ),
+        sa.Column("attempt", sa.Integer(), server_default=sa.text("1"), nullable=False),
         sa.Column("max_attempts", sa.Integer(), nullable=False),
         sa.Column("arq_job_id", sa.Text(), nullable=True),
         sa.Column(
             "sources_attempted",
             sa.JSON().with_variant(postgresql.JSONB(), "postgresql"),
-            server_default=sa.text("'[]'::jsonb"),
+            server_default=sa.text("'[]'"),
             nullable=False,
         ),
         sa.Column(
             "sources_degraded",
             sa.JSON().with_variant(postgresql.JSONB(), "postgresql"),
-            server_default=sa.text("'[]'::jsonb"),
+            server_default=sa.text("'[]'"),
             nullable=False,
         ),
-        sa.Column("findings_count", sa.Integer(), server_default="0", nullable=False),
         sa.Column(
-            "new_findings_count", sa.Integer(), server_default="0", nullable=False
+            "findings_count", sa.Integer(), server_default=sa.text("0"), nullable=False
+        ),
+        sa.Column(
+            "new_findings_count",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
         ),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error_kind", sa.Text(), nullable=True),
-        sa.Column("error_message", sa.String(length=2000), nullable=True),
+        sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -143,17 +150,21 @@ def upgrade() -> None:
         sa.Column("kind", sa.Text(), nullable=False),
         sa.Column("value", sa.Text(), nullable=False),
         sa.Column("value_normalized", sa.Text(), nullable=False),
-        sa.Column("fingerprint", sa.String(length=64), nullable=False),
+        sa.Column("fingerprint", sa.CHAR(length=64), nullable=False),
         sa.Column("severity", sa.Text(), nullable=False),
         sa.Column("raw_severity", sa.Text(), nullable=True),
-        sa.Column("status", sa.Text(), server_default="active", nullable=False),
+        sa.Column(
+            "status", sa.Text(), server_default=sa.text("'active'"), nullable=False
+        ),
         sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("times_seen", sa.Integer(), server_default="1", nullable=False),
+        sa.Column(
+            "times_seen", sa.Integer(), server_default=sa.text("1"), nullable=False
+        ),
         sa.Column(
             "details",
             sa.JSON().with_variant(postgresql.JSONB(), "postgresql"),
-            server_default=sa.text("'{}'::jsonb"),
+            server_default=sa.text("'{}'"),
             nullable=False,
         ),
         sa.Column(

@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    CHAR,
     JSON,
     Boolean,
     DateTime,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
@@ -49,7 +51,7 @@ class Tenant(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true"
+        Boolean, nullable=False, default=True, server_default=text("true")
     )
     zitadel_org_id: Mapped[str | None] = mapped_column(
         String(255),
@@ -105,7 +107,7 @@ class Target(Base, TenantOwnedMixin):
     value: Mapped[str] = mapped_column(Text, nullable=False)
     value_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true"
+        Boolean, nullable=False, default=True, server_default=text("true")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -139,10 +141,10 @@ class ScanRun(Base, TenantOwnedMixin):
         ForeignKey("targets.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[str] = mapped_column(
-        Text, nullable=False, default="queued", server_default="queued"
+        Text, nullable=False, default="queued", server_default=text("'queued'")
     )
     attempt: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1"
+        Integer, nullable=False, default=1, server_default=text("1")
     )
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
     arq_job_id: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
@@ -150,19 +152,19 @@ class ScanRun(Base, TenantOwnedMixin):
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
         default=list,
-        server_default="[]",
+        server_default=text("'[]'"),
     )
     sources_degraded: Mapped[list[Any]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
         default=list,
-        server_default="[]",
+        server_default=text("'[]'"),
     )
     findings_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
+        Integer, nullable=False, default=0, server_default=text("0")
     )
     new_findings_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
+        Integer, nullable=False, default=0, server_default=text("0")
     )
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
@@ -171,9 +173,8 @@ class ScanRun(Base, TenantOwnedMixin):
         DateTime(timezone=True), nullable=True, default=None
     )
     error_kind: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
-    error_message: Mapped[str | None] = mapped_column(
-        String(2000), nullable=True, default=None
-    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -207,11 +208,11 @@ class Finding(Base, TenantOwnedMixin):
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     value_normalized: Mapped[str] = mapped_column(Text, nullable=False)
-    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     severity: Mapped[str] = mapped_column(Text, nullable=False)
     raw_severity: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     status: Mapped[str] = mapped_column(
-        Text, nullable=False, default="active", server_default="active"
+        Text, nullable=False, default="active", server_default=text("'active'")
     )
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
@@ -220,13 +221,13 @@ class Finding(Base, TenantOwnedMixin):
         DateTime(timezone=True), nullable=False
     )
     times_seen: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1"
+        Integer, nullable=False, default=1, server_default=text("1")
     )
     details: Mapped[dict[str, Any]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
         default=dict,
-        server_default="{}",
+        server_default=text("'{}'"),
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
