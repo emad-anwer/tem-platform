@@ -28,6 +28,14 @@ logs:
 logs-app:
     docker compose logs -f app
 
+# start or recreate the worker service without restarting the API
+worker:
+    docker compose up -d worker
+
+# follow logs from the worker service only
+worker-logs:
+    docker compose logs -f worker
+
 # generate lab TLS SAN certificates if missing (idempotent) so a clean clone works
 lab-certs:
     #!/usr/bin/env bash

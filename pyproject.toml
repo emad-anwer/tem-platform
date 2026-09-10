@@ -12,6 +12,11 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.19.1",
+    # arq: async job queue on Redis, approved in DECISIONS.md §4.  Scanning and
+    # feed ingestion cannot run in request handlers; arq is async-native (same
+    # event-loop model as FastAPI), uses the Redis already in the stack, and is
+    # small enough that an intern can read the whole library in an afternoon.
+    "arq>=0.26.1",
     "asyncpg>=0.31.0",
     "fastapi>=0.141.1",
     "greenlet>=3.1.4",

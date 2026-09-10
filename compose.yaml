@@ -31,6 +31,50 @@ services:
       - ./.zitadel-bootstrap:/run/zitadel-bootstrap
       - ./scripts:/app/scripts:ro
 
+  # ----------------------------------------------------------------------
+  # Background worker (arq) — shares the app image, not the request path
+  #
+  # Same env file, same network, same image as `app`.  No exposed ports:
+  # the worker consumes jobs from Redis; it does not serve anything.
+  #
+  # depends_on: only Postgres and Redis.  The worker has no JWT validation
+  # path and never calls Zitadel, so depending on it would add ~60 s to
+  # every cold start for no benefit.
+  #
+  # stop_grace_period: must match WorkerSettings.job_timeout (300 s).
+  # `docker compose stop worker` sends SIGTERM; arq stops pulling new jobs
+  # and waits for in-flight ones to finish.  Without the extended grace
+  # period Docker escalates to SIGKILL after 10 s and leaves a scan row
+  # half-written.  Stopping the worker leaves the API healthy and jobs
+  # queued — the two processes fail independently.
+  # ----------------------------------------------------------------------
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    command: ["python", "-m", "app.worker"]
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 300s
+    security_opt:
+      - no-new-privileges:true
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /app
+          ignore:
+            - .venv/
+        - action: rebuild
+          path: ./pyproject.toml
+
   postgres:
     image: postgres:16-alpine
     environment:
