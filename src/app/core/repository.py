@@ -10,11 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.context import get_current_principal
 from app.core.auth.principal import Principal, Role
-from app.core.models import Finding, ScanRun, Target, Tenant
+from app.core.models import Finding, ScanRun, Target, Tenant, TenantOwnedMixin
 from app.core.pagination import decode_cursor, encode_cursor
 
-T = TypeVar("T")
+T = TypeVar("T", bound=TenantOwnedMixin)
 MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH = 2000
+_INVALID_CURSOR = "Invalid cursor."
+_LIMIT_MUST_BE_POSITIVE = "limit must be greater than 0."
 
 
 class MissingTenantContextError(RuntimeError):
@@ -59,12 +61,12 @@ class CreatedAtIdCursor:
         """Decode an opaque cursor string back into (created_at, id)."""
         values = decode_cursor(cursor)
         if len(values) != 2:
-            raise ValueError("Invalid cursor.")
+            raise ValueError(_INVALID_CURSOR)
         created_at_str, id_str = values
         try:
             return datetime.fromisoformat(created_at_str), UUID(id_str)
         except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid cursor.") from exc
+            raise ValueError(_INVALID_CURSOR) from exc
 
 
 class TenantScopedRepository(Generic[T]):
@@ -76,7 +78,7 @@ class TenantScopedRepository(Generic[T]):
     - Constructed without a context or used when the context is empty -> raises loudly.
     """
 
-    model: type[T]
+    model: type[Any]
 
     def __init__(
         self,
@@ -153,7 +155,7 @@ class TenantScopedRepository(Generic[T]):
     ) -> tuple[Sequence[T], str | None]:
 
         if limit <= 0:
-            raise ValueError("limit must be greater than 0.")
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
 
         columns = self._cursor_columns()
 
@@ -163,7 +165,7 @@ class TenantScopedRepository(Generic[T]):
             values = self._decode_cursor(cursor)
 
             if len(values) != len(columns):
-                raise ValueError("Invalid cursor.")
+                raise ValueError(_INVALID_CURSOR)
 
             stmt = stmt.where(tuple_(*columns) > tuple(values))
 
@@ -233,14 +235,14 @@ class TenantRepository:
         values = decode_cursor(cursor)
 
         if len(values) != 2:
-            raise ValueError("Invalid cursor.")
+            raise ValueError(_INVALID_CURSOR)
 
         name, id_str = values
 
         try:
             return name, UUID(id_str)
         except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid cursor.") from exc
+            raise ValueError(_INVALID_CURSOR) from exc
 
     async def create(
         self,
@@ -277,7 +279,7 @@ class TenantRepository:
         result = await self._session.execute(select(Tenant).where(Tenant.slug == slug))
         return result.scalar_one_or_none()
 
-    async def list(
+    async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
         self,
         *,
         limit: int = 20,
@@ -347,7 +349,7 @@ class TargetRepository(TenantScopedRepository[Target]):
         is_active: bool | None = None,
     ) -> tuple[Sequence[Target], str | None]:
         if limit <= 0:
-            raise ValueError("limit must be greater than 0.")
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
 
         columns = self._cursor_columns()
         stmt = self._scope_select(select(self.model)).order_by(*columns)
@@ -360,7 +362,7 @@ class TargetRepository(TenantScopedRepository[Target]):
         if cursor is not None:
             values = self._decode_cursor(cursor)
             if len(values) != len(columns):
-                raise ValueError("Invalid cursor.")
+                raise ValueError(_INVALID_CURSOR)
             stmt = stmt.where(tuple_(*columns) > tuple(values))
 
         result = await self._session.execute(stmt.limit(limit + 1))
@@ -418,7 +420,7 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list(
+    async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
         self,
         *,
         limit: int = 50,
@@ -427,7 +429,7 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
         status: str | None = None,
     ) -> tuple[Sequence[ScanRun], str | None]:
         if limit <= 0:
-            raise ValueError("limit must be greater than 0.")
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
 
         columns = self._cursor_columns()
         stmt = self._scope_select(select(self.model)).order_by(*columns)
@@ -442,7 +444,7 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
         if cursor is not None:
             values = self._decode_cursor(cursor)
             if len(values) != len(columns):
-                raise ValueError("Invalid cursor.")
+                raise ValueError(_INVALID_CURSOR)
             stmt = stmt.where(tuple_(*columns) > tuple(values))
 
         result = await self._session.execute(stmt.limit(limit + 1))
@@ -489,7 +491,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list(
+    async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
         self,
         *,
         limit: int = 50,
@@ -501,7 +503,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
         status: str | None = None,
     ) -> tuple[Sequence[Finding], str | None]:
         if limit <= 0:
-            raise ValueError("limit must be greater than 0.")
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
 
         columns = self._cursor_columns()
         stmt = self._scope_select(select(self.model)).order_by(*columns)
@@ -524,7 +526,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
         if cursor is not None:
             values = self._decode_cursor(cursor)
             if len(values) != len(columns):
-                raise ValueError("Invalid cursor.")
+                raise ValueError(_INVALID_CURSOR)
             stmt = stmt.where(tuple_(*columns) > tuple(values))
 
         result = await self._session.execute(stmt.limit(limit + 1))
