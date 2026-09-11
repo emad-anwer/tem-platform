@@ -1,54 +1,4 @@
-"""arq WorkerSettings — the configuration object arq reads at startup.
-
-Run with:
-    python -m app.worker          (via __main__.py)
-    arq app.worker.settings.WorkerSettings  (arq CLI)
-
-Redis connection
-----------------
-arq needs its own ``RedisSettings`` object, but we must not open a second,
-differently-configured pool.  The solution: derive arq's ``RedisSettings``
-directly from the app ``Settings`` so both use the same host/port/password/db.
-arq manages its own connection pool internally; this file just ensures it
-points at the same server with the same credentials — no divergence possible.
-
-Concurrency — READ THIS BEFORE WRITING W3-07
----------------------------------------------
-arq runs all ``max_jobs`` concurrent jobs in **a single asyncio event loop**.
-That means one synchronous blocking call stalls *every other in-flight job*:
-
-    socket.getaddrinfo(...)   # stdlib DNS resolver — BLOCKING
-    requests.get(...)         # requests library — BLOCKING
-    time.sleep(1)             # BLOCKING
-
-W3-07 resolves DNS for hundreds of hostnames per scan run.  If it calls the
-stdlib resolver directly, the entire worker freezes for every lookup.
-
-The fix is mandatory:
-    # ✗ WRONG — blocks the event loop
-    addrs = socket.getaddrinfo(hostname, 80)
-
-    # ✓ CORRECT — offloads to a thread-pool executor
-    loop = asyncio.get_running_loop()
-    addrs = await loop.run_in_executor(None, socket.getaddrinfo, hostname, 80)
-
-    # ✓ Also correct — use an async DNS library (aiodns, asyncio-resolver)
-    result = await resolver.resolve(hostname)
-
-This is not a style suggestion.  A synchronous DNS call inside an async job
-that handles 100 hostnames will stall every other job on the loop for the
-entire duration of those 100 serial system-call round trips.  The symptom is
-not slowness: it is complete starvation of all other concurrent jobs until
-the synchronous work finishes.
-
-redis_required for the worker
-------------------------------
-``redis_required`` defaults to ``False`` in Settings because the API can run
-without its optional cache. The worker makes a separate, explicit decision:
-Redis is mandatory because the queue is the worker's entire input. Startup
-therefore performs a successful ``PING`` after the shared Redis manager's
-retry loop and exits if Redis is still unavailable.
-"""
+"""arq worker configuration and lifecycle hooks."""
 
 from typing import ClassVar
 
@@ -65,30 +15,23 @@ logger = structlog.get_logger(__name__)
 
 
 def _arq_redis_settings(settings: Settings) -> RedisSettings:
-    """Build arq RedisSettings from the app Settings.
-
-    Both the API pool (core/redis.py) and arq's pool point at the same Redis
-    server with the same credentials — derived from the same source of truth.
-    """
+    """Build arq settings from the application Redis URL."""
     url = settings.redis_url
     path = (url.path or "").lstrip("/")
+    if url.host is None or url.port is None:
+        raise ValueError("REDIS_URL must include a host and port")
     return RedisSettings(
-        host=url.host or "localhost",
-        port=url.port or 6379,
+        host=url.host,
+        port=url.port,
         password=url.password,
-        database=int(path) if path else 0,
+        database=int(path) if path else 0,  # Redis database 0 is the URL default.
         conn_timeout=int(settings.redis_socket_connect_timeout),
         conn_retries=settings.redis_max_retries,
     )
 
 
 async def startup(ctx: dict) -> None:
-    """Called once when the worker process starts.
-
-    Initialises logging, verifies Redis connectivity (fatal if unavailable),
-    and warms up the database pool.  The ctx dict is shared across all jobs
-    for the lifetime of the worker process.
-    """
+    """Initialise logging and verify worker dependencies."""
     settings = get_settings()
     setup_logging(settings.log_level)
 
@@ -131,12 +74,7 @@ async def startup(ctx: dict) -> None:
 
 
 async def shutdown(ctx: dict) -> None:
-    """Called once when the worker process is stopping.
-
-    Disposes connections cleanly so no sockets are left open after the process
-    exits. arq stops claiming new jobs and waits for in-flight jobs before
-    calling this hook, subject to ``job_completion_wait``.
-    """
+    """Close worker connections after active jobs drain."""
     logger.info("worker.shutting_down")
     await dispose_redis()
     await dispose_engine()
@@ -144,14 +82,7 @@ async def shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    """arq worker configuration.
-
-    arq reads this class by convention: it looks for ``functions``,
-    ``redis_settings``, ``on_startup``, ``on_shutdown``, etc. as class
-    attributes.
-
-    See: https://arq-docs.helpmanual.io/#arq.worker.Worker
-    """
+    """Settings consumed by arq."""
 
     # ------------------------------------------------------------------
     # Redis
@@ -162,13 +93,7 @@ class WorkerSettings:
     # ------------------------------------------------------------------
     # Job registry
     #
-    # Register job functions here as modules implement them.  Each entry is
-    # a coroutine function decorated with nothing special — arq picks them up
-    # by reference.
-    #
-    # Example (add in W3-05+):
-    #   from app.modules.asm.jobs import run_asm_scan
-    #   functions = [run_asm_scan]
+    # Add coroutine job functions here as modules implement them.
     # ------------------------------------------------------------------
 
     functions: ClassVar[list] = []
@@ -183,16 +108,8 @@ class WorkerSettings:
     # ------------------------------------------------------------------
     # Concurrency and timeouts
     #
-    # max_jobs=10: ten jobs share ONE event loop.  See the concurrency note
-    # at the top of this file — blocking calls in any job stall all others.
-    #
-    # job_timeout=300: five minutes.  This matches compose.yaml's
-    # stop_grace_period so a SIGTERM during the last second of a job still
-    # gives it time to finish.  Override per-function with the @job decorator
-    # or by passing timeout= to ctx["job_id"] enqueue calls.
-    #
-    # health_check_interval=30: arq writes a heartbeat key to Redis every 30 s
-    # so external monitors can detect a stalled worker.
+    # All jobs share one event loop; blocking work stalls every job.
+    # Compose uses the same 300-second shutdown window as job completion.
     # ------------------------------------------------------------------
 
     max_jobs: int = 10
