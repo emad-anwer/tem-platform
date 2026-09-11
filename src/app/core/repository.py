@@ -1,6 +1,7 @@
 """Database access for shared platform entities."""
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
@@ -9,14 +10,63 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.context import get_current_principal
 from app.core.auth.principal import Principal, Role
-from app.core.models import Tenant
+from app.core.models import Finding, ScanRun, Target, Tenant, TenantOwnedMixin
 from app.core.pagination import decode_cursor, encode_cursor
 
-T = TypeVar("T")
+T = TypeVar("T", bound=TenantOwnedMixin)
+MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH = 2000
+_INVALID_CURSOR = "Invalid cursor."
+_LIMIT_MUST_BE_POSITIVE = "limit must be greater than 0."
 
 
 class MissingTenantContextError(RuntimeError):
     """Raised when an operation requires a tenant context but none is present."""
+
+
+def _coerce_uuid(value: UUID | str, param_name: str) -> UUID:
+    """Coerce a UUID | str parameter to UUID for safe comparison against UUID columns.
+
+    asyncpg returns empty results when a string is compared directly against a
+    UUID column; normalising here keeps repository signatures ergonomic while
+    ensuring correct query behaviour.
+    """
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid UUID for {param_name!r}.") from exc
+
+
+class CreatedAtIdCursor:
+    """Shared created_at + id cursor implementation for tenant-scoped repositories.
+
+    Provides the standard cursor column trio (created_at, id) used by
+    TargetRepository, ScanRunRepository, and FindingRepository, eliminating
+    triplicated encode/decode logic.
+    """
+
+    @staticmethod
+    def columns(model: type[Any]) -> tuple[Any, ...]:
+        """Return the cursor column tuple for a model."""
+        return (model.created_at, model.id)
+
+    @staticmethod
+    def encode(entity: Any) -> str:
+        """Encode an entity's cursor values into an opaque string."""
+        return encode_cursor([entity.created_at.isoformat(), str(entity.id)])
+
+    @staticmethod
+    def decode(cursor: str) -> tuple[datetime, UUID]:
+        """Decode an opaque cursor string back into (created_at, id)."""
+        values = decode_cursor(cursor)
+        if len(values) != 2:
+            raise ValueError(_INVALID_CURSOR)
+        created_at_str, id_str = values
+        try:
+            return datetime.fromisoformat(created_at_str), UUID(id_str)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(_INVALID_CURSOR) from exc
 
 
 class TenantScopedRepository(Generic[T]):
@@ -28,7 +78,7 @@ class TenantScopedRepository(Generic[T]):
     - Constructed without a context or used when the context is empty -> raises loudly.
     """
 
-    model: type[T]
+    model: type[Any]
 
     def __init__(
         self,
@@ -78,7 +128,10 @@ class TenantScopedRepository(Generic[T]):
 
     async def get_by_id(self, entity_id: UUID | str) -> T | None:
         """Retrieve a single entity by its primary key, scoped to the current tenant."""
-        stmt = self._scope_select(select(self.model)).where(self.model.id == entity_id)
+        entity_uuid = _coerce_uuid(entity_id, "entity_id")
+        stmt = self._scope_select(select(self.model)).where(
+            self.model.id == entity_uuid
+        )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -102,7 +155,7 @@ class TenantScopedRepository(Generic[T]):
     ) -> tuple[Sequence[T], str | None]:
 
         if limit <= 0:
-            raise ValueError("limit must be greater than 0.")
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
 
         columns = self._cursor_columns()
 
@@ -112,7 +165,7 @@ class TenantScopedRepository(Generic[T]):
             values = self._decode_cursor(cursor)
 
             if len(values) != len(columns):
-                raise ValueError("Invalid cursor.")
+                raise ValueError(_INVALID_CURSOR)
 
             stmt = stmt.where(tuple_(*columns) > tuple(values))
 
@@ -182,14 +235,14 @@ class TenantRepository:
         values = decode_cursor(cursor)
 
         if len(values) != 2:
-            raise ValueError("Invalid cursor.")
+            raise ValueError(_INVALID_CURSOR)
 
         name, id_str = values
 
         try:
             return name, UUID(id_str)
         except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid cursor.") from exc
+            raise ValueError(_INVALID_CURSOR) from exc
 
     async def create(
         self,
@@ -226,7 +279,7 @@ class TenantRepository:
         result = await self._session.execute(select(Tenant).where(Tenant.slug == slug))
         return result.scalar_one_or_none()
 
-    async def list(
+    async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
         self,
         *,
         limit: int = 20,
@@ -258,3 +311,247 @@ class TenantRepository:
             next_cursor = self._encode_cursor(last)
 
         return items, next_cursor
+
+
+class TargetRepository(TenantScopedRepository[Target]):
+    """Tenant-scoped repository for Targets."""
+
+    model = Target
+
+    def _cursor_columns(self) -> tuple[Any, ...]:
+        return CreatedAtIdCursor.columns(self.model)
+
+    def _encode_cursor(self, entity: Target) -> str:
+        return CreatedAtIdCursor.encode(entity)
+
+    def _decode_cursor(self, cursor: str) -> tuple[datetime, UUID]:
+        return CreatedAtIdCursor.decode(cursor)
+
+    async def get_by_kind_and_value(
+        self,
+        kind: str,
+        value_normalized: str,
+    ) -> Target | None:
+        """Lookup target by unique (tenant_id, kind, value_normalized)."""
+        stmt = self._scope_select(select(self.model)).where(
+            self.model.kind == kind,
+            self.model.value_normalized == value_normalized,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list(
+        self,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        kind: str | None = None,
+        is_active: bool | None = None,
+    ) -> tuple[Sequence[Target], str | None]:
+        if limit <= 0:
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
+
+        columns = self._cursor_columns()
+        stmt = self._scope_select(select(self.model)).order_by(*columns)
+
+        if kind is not None:
+            stmt = stmt.where(self.model.kind == kind)
+        if is_active is not None:
+            stmt = stmt.where(self.model.is_active == is_active)
+
+        if cursor is not None:
+            values = self._decode_cursor(cursor)
+            if len(values) != len(columns):
+                raise ValueError(_INVALID_CURSOR)
+            stmt = stmt.where(tuple_(*columns) > tuple(values))
+
+        result = await self._session.execute(stmt.limit(limit + 1))
+        items = list(result.scalars().all())
+
+        if len(items) <= limit:
+            return items, None
+
+        items = items[:limit]
+        return items, self._encode_cursor(items[-1])
+
+
+class ScanRunRepository(TenantScopedRepository[ScanRun]):
+    """Tenant-scoped repository for ScanRuns."""
+
+    model = ScanRun
+
+    @staticmethod
+    def _truncate_error_message(attributes: dict[str, Any]) -> None:
+        error_message = attributes.get("error_message")
+        if error_message is not None:
+            attributes["error_message"] = error_message[
+                :MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH
+            ]
+
+    async def create(self, **attributes: Any) -> ScanRun:
+        self._truncate_error_message(attributes)
+        return await super().create(**attributes)
+
+    async def update(self, entity_id: UUID | str, **attributes: Any) -> ScanRun | None:
+        self._truncate_error_message(attributes)
+        return await super().update(entity_id, **attributes)
+
+    def _cursor_columns(self) -> tuple[Any, ...]:
+        return CreatedAtIdCursor.columns(self.model)
+
+    def _encode_cursor(self, entity: ScanRun) -> str:
+        return CreatedAtIdCursor.encode(entity)
+
+    def _decode_cursor(self, cursor: str) -> tuple[datetime, UUID]:
+        return CreatedAtIdCursor.decode(cursor)
+
+    async def get_latest_for_target(
+        self,
+        target_id: UUID | str,
+    ) -> ScanRun | None:
+        """Retrieve the most recent scan run for a given target."""
+        target_uuid = _coerce_uuid(target_id, "target_id")
+        stmt = (
+            self._scope_select(select(self.model))
+            .where(self.model.target_id == target_uuid)
+            .order_by(self.model.created_at.desc(), self.model.id.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
+        self,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        target_id: UUID | str | None = None,
+        status: str | None = None,
+    ) -> tuple[Sequence[ScanRun], str | None]:
+        if limit <= 0:
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
+
+        columns = self._cursor_columns()
+        stmt = self._scope_select(select(self.model)).order_by(*columns)
+
+        if target_id is not None:
+            stmt = stmt.where(
+                self.model.target_id == _coerce_uuid(target_id, "target_id")
+            )
+        if status is not None:
+            stmt = stmt.where(self.model.status == status)
+
+        if cursor is not None:
+            values = self._decode_cursor(cursor)
+            if len(values) != len(columns):
+                raise ValueError(_INVALID_CURSOR)
+            stmt = stmt.where(tuple_(*columns) > tuple(values))
+
+        result = await self._session.execute(stmt.limit(limit + 1))
+        items = list(result.scalars().all())
+
+        if len(items) <= limit:
+            return items, None
+
+        items = items[:limit]
+        return items, self._encode_cursor(items[-1])
+
+    async def list_by_target(
+        self,
+        target_id: UUID | str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[Sequence[ScanRun], str | None]:
+        return await self.list(limit=limit, cursor=cursor, target_id=target_id)
+
+
+class FindingRepository(TenantScopedRepository[Finding]):
+    """Tenant-scoped repository for Findings."""
+
+    model = Finding
+
+    def _cursor_columns(self) -> tuple[Any, ...]:
+        return CreatedAtIdCursor.columns(self.model)
+
+    def _encode_cursor(self, entity: Finding) -> str:
+        return CreatedAtIdCursor.encode(entity)
+
+    def _decode_cursor(self, cursor: str) -> tuple[datetime, UUID]:
+        return CreatedAtIdCursor.decode(cursor)
+
+    async def get_by_fingerprint(
+        self,
+        fingerprint: str,
+    ) -> Finding | None:
+        """Lookup finding by unique (tenant_id, fingerprint)."""
+        stmt = self._scope_select(select(self.model)).where(
+            self.model.fingerprint == fingerprint
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
+        self,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        target_id: UUID | str | None = None,
+        run_id: UUID | str | None = None,
+        kind: str | None = None,
+        severity: str | None = None,
+        status: str | None = None,
+    ) -> tuple[Sequence[Finding], str | None]:
+        if limit <= 0:
+            raise ValueError(_LIMIT_MUST_BE_POSITIVE)
+
+        columns = self._cursor_columns()
+        stmt = self._scope_select(select(self.model)).order_by(*columns)
+
+        if target_id is not None:
+            stmt = stmt.where(
+                self.model.target_id == _coerce_uuid(target_id, "target_id")
+            )
+        if run_id is not None:
+            stmt = stmt.where(
+                self.model.last_seen_run_id == _coerce_uuid(run_id, "run_id")
+            )
+        if kind is not None:
+            stmt = stmt.where(self.model.kind == kind)
+        if severity is not None:
+            stmt = stmt.where(self.model.severity == severity)
+        if status is not None:
+            stmt = stmt.where(self.model.status == status)
+
+        if cursor is not None:
+            values = self._decode_cursor(cursor)
+            if len(values) != len(columns):
+                raise ValueError(_INVALID_CURSOR)
+            stmt = stmt.where(tuple_(*columns) > tuple(values))
+
+        result = await self._session.execute(stmt.limit(limit + 1))
+        items = list(result.scalars().all())
+
+        if len(items) <= limit:
+            return items, None
+
+        items = items[:limit]
+        return items, self._encode_cursor(items[-1])
+
+    async def list_by_target(
+        self,
+        target_id: UUID | str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[Sequence[Finding], str | None]:
+        return await self.list(limit=limit, cursor=cursor, target_id=target_id)
+
+    async def list_by_run(
+        self,
+        run_id: UUID | str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[Sequence[Finding], str | None]:
+        return await self.list(limit=limit, cursor=cursor, run_id=run_id)
