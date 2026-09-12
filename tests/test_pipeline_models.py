@@ -737,15 +737,17 @@ async def test_scan_run_domain_queries(db_session: AsyncSession, two_tenants):
     r1 = await run_repo.create(
         target_id=target.id,
         max_attempts=3,
-        status="succeeded",
         created_at=created_at,
     )
     r2 = await run_repo.create(
         target_id=target.id,
         max_attempts=3,
-        status="running",
         created_at=created_at + timedelta(microseconds=1),
     )
+
+    await run_repo.claim_for_job(r1.id, job_id="job-1")
+    await run_repo.succeed(r1.id)
+    await run_repo.claim_for_job(r2.id, job_id="job-2")
 
     # get_latest_for_target
     latest = await run_repo.get_latest_for_target(target.id)
