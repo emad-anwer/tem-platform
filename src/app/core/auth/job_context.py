@@ -48,28 +48,33 @@ def tenant_job(func: _F) -> _F:
                 f"Payload must have a tenant_id attribute of type uuid.UUID, got {type(tenant_id)}"
             )
 
-        job_id = str(ctx.get("job_id", "unknown"))
+        job_id = str(ctx["job_id"])
+        job_name = func.__name__
         principal = system_principal(
-            tenant_id=tenant_id, job_name=func.__name__, job_id=job_id
+            tenant_id=tenant_id, job_name=job_name, job_id=job_id
         )
 
         principal_token = set_current_principal(principal)
-        structlog.contextvars.bind_contextvars(
-            tenant_id=str(tenant_id), job_id=job_id, job_name=func.__name__
+        context_tokens = structlog.contextvars.bind_contextvars(
+            tenant_id=str(tenant_id), job_id=job_id, job_name=job_name
         )
 
         try:
-            return await func(ctx, payload, *args, **kwargs)
+            result = await func(ctx, payload, *args, **kwargs)
+        except Exception:
+            logger.error("job.failed", exc_info=True)
+            raise
+        else:
+            logger.info("job.completed")
+            return result
         finally:
             reset_current_principal(principal_token)
-            structlog.contextvars.clear_contextvars()
-            logger.debug(
-                "Job finished",
-                job_name=func.__name__,
-                job_id=job_id,
-                tenant_id=str(tenant_id),
-            )
+            structlog.contextvars.reset_contextvars(**context_tokens)
 
     wrapper.__tenant_job__ = True  # type: ignore[attr-defined]
-    JOB_REGISTRY[func.__name__] = wrapper  # type: ignore[arg-type]
+
+    job_name = func.__name__
+    if job_name in JOB_REGISTRY:
+        raise ValueError(f"Job {job_name!r} is already registered in JOB_REGISTRY")
+    JOB_REGISTRY[job_name] = wrapper  # type: ignore[arg-type]
     return wrapper  # type: ignore[return-value]
