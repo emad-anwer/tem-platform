@@ -34,14 +34,22 @@ def classify_failure(error: BaseException) -> str:
     if isinstance(error, RetryableJobError | TimeoutException):
         return "retryable"
     if isinstance(error, HTTPStatusError):
-        return "retryable" if error.response.status_code in _RETRYABLE_HTTP_STATUSES else "terminal"
+        return (
+            "retryable"
+            if error.response.status_code in _RETRYABLE_HTTP_STATUSES
+            else "terminal"
+        )
     return "terminal"
 
 
 def scrub_failure_message(error: BaseException, *, error_kind: str) -> str:
     """Return a short reason without exception payloads or connection details."""
     if isinstance(error, asyncio.TimeoutError | TimeoutException):
-        message = "job deadline exceeded" if isinstance(error, asyncio.TimeoutError) else "outbound request timed out"
+        message = (
+            "job deadline exceeded"
+            if isinstance(error, asyncio.TimeoutError)
+            else "outbound request timed out"
+        )
     elif isinstance(error, HTTPStatusError):
         message = f"upstream HTTP {error.response.status_code}"
     elif isinstance(error, RetryableJobError):

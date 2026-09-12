@@ -41,18 +41,20 @@ def test_failure_messages_are_safe() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_reuses_one_scan_run(
-    db_session: AsyncSession, two_tenants
-) -> None:
+async def test_retry_reuses_one_scan_run(db_session: AsyncSession, two_tenants) -> None:
     tenant, _ = two_tenants
     from app.core.auth.context import set_current_principal
     from app.core.auth.principal import Principal, Role
 
-    set_current_principal(Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER))
+    set_current_principal(
+        Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER)
+    )
     target = await TargetRepository(db_session).create(
         kind="domain", value="example.com", value_normalized="example.com"
     )
-    run = await ScanRunRepository(db_session).create(target_id=target.id, max_attempts=3)
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
     calls = 0
 
     async def work(ctx, current_run):
@@ -76,18 +78,20 @@ async def test_retry_reuses_one_scan_run(
 
 
 @pytest.mark.asyncio
-async def test_deadline_marks_run_failed(
-    db_session: AsyncSession, two_tenants
-) -> None:
+async def test_deadline_marks_run_failed(db_session: AsyncSession, two_tenants) -> None:
     tenant, _ = two_tenants
     from app.core.auth.context import set_current_principal
     from app.core.auth.principal import Principal, Role
 
-    set_current_principal(Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER))
+    set_current_principal(
+        Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER)
+    )
     target = await TargetRepository(db_session).create(
         kind="domain", value="example.com", value_normalized="example.com"
     )
-    run = await ScanRunRepository(db_session).create(target_id=target.id, max_attempts=1)
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=1
+    )
 
     async def work(ctx, current_run):
         await asyncio.sleep(0.01)
@@ -112,11 +116,15 @@ async def test_terminal_error_does_not_retry(
     from app.core.auth.context import set_current_principal
     from app.core.auth.principal import Principal, Role
 
-    set_current_principal(Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER))
+    set_current_principal(
+        Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER)
+    )
     target = await TargetRepository(db_session).create(
         kind="domain", value="example.com", value_normalized="example.com"
     )
-    run = await ScanRunRepository(db_session).create(target_id=target.id, max_attempts=3)
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
 
     async def work(ctx, current_run):
         raise TerminalJobError("invalid domain")
@@ -131,12 +139,16 @@ async def test_terminal_error_does_not_retry(
 
 
 @pytest.mark.asyncio
-async def test_stale_runs_are_marked_failed(db_session: AsyncSession, two_tenants) -> None:
+async def test_stale_runs_are_marked_failed(
+    db_session: AsyncSession, two_tenants
+) -> None:
     tenant, _ = two_tenants
     from app.core.auth.context import set_current_principal
     from app.core.auth.principal import Principal, Role
 
-    set_current_principal(Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER))
+    set_current_principal(
+        Principal(user_id="job", tenant_id=tenant.id, role=Role.OWNER)
+    )
     target = await TargetRepository(db_session).create(
         kind="domain", value="example.com", value_normalized="example.com"
     )
@@ -150,9 +162,7 @@ async def test_stale_runs_are_marked_failed(db_session: AsyncSession, two_tenant
     db_session.add(run)
     await db_session.commit()
 
-    count = await mark_stale_runs(
-        db_session, job_timeout=300, now=datetime.now(UTC)
-    )
+    count = await mark_stale_runs(db_session, job_timeout=300, now=datetime.now(UTC))
     assert count == 1
     await db_session.refresh(run)
     assert run.status == ScanRunStatus.FAILED
