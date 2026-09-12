@@ -62,7 +62,7 @@ def tenant_job(func: _F) -> _F:
         try:
             result = await func(ctx, payload, *args, **kwargs)
         except Exception:
-            logger.error("job.failed", exc_info=True)
+            logger.exception("job.failed")
             raise
         else:
             logger.info("job.completed")

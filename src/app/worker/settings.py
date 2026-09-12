@@ -3,15 +3,15 @@
 from typing import ClassVar
 
 import structlog
-from app.core.auth.job_context import JOB_REGISTRY
 from arq.connections import RedisSettings
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.auth.job_context import JOB_REGISTRY
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine, wait_for_db
+from app.core.jobs import scan  # noqa: F401, register scan jobs
 from app.core.logging import setup_logging
 from app.core.redis import dispose_redis, get_redis, wait_for_redis
-from app.core.jobs import scan  # noqa: F401, register scan jobs
 
 logger = structlog.get_logger(__name__)
 

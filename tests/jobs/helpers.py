@@ -8,8 +8,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.principal import Principal, Role
-
 
 class JobContext(TypedDict, total=False):
     """Shape of the ctx dict arq injects into every job function.
