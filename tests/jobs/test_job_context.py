@@ -24,13 +24,15 @@ class MockPayload:
 async def job_reads_rows(ctx: dict[str, Any], payload: MockPayload) -> list[Target]:
     db: AsyncSession = ctx["db"]
     repo = TargetRepository(db)
-    return await repo.list()
+    items, _ = await repo.list()
+    return list(items)
 
 
 async def raw_job_reads_rows(ctx: dict[str, Any], payload: MockPayload) -> list[Target]:
     db: AsyncSession = ctx["db"]
     repo = TargetRepository(db)
-    return await repo.list()
+    items, _ = await repo.list()
+    return list(items)
 
 
 @tenant_job
@@ -46,15 +48,16 @@ async def job_suspend(ctx: dict[str, Any], payload: MockPayload) -> list[Target]
     db: AsyncSession = ctx["db"]
     repo = TargetRepository(db)
     await asyncio.sleep(0.1)
-    return await repo.list()
+    items, _ = await repo.list()
+    return list(items)
 
 
 async def test_job_with_context_reads_only_own_tenant_rows(
     db_session: AsyncSession, tenant: Tenant, other_tenant: Tenant
 ) -> None:
     # Setup data
-    target1 = Target(id=uuid.uuid4(), tenant_id=tenant.id, name="t1", target="1.1.1.1")
-    target2 = Target(id=uuid.uuid4(), tenant_id=other_tenant.id, name="t2", target="2.2.2.2")
+    target1 = Target(id=uuid.uuid4(), tenant_id=tenant.id, kind="ip", value="1.1.1.1", value_normalized="1.1.1.1")
+    target2 = Target(id=uuid.uuid4(), tenant_id=other_tenant.id, kind="ip", value="2.2.2.2", value_normalized="2.2.2.2")
     db_session.add_all([target1, target2])
     await db_session.flush()
 
@@ -67,7 +70,7 @@ async def test_job_with_context_reads_only_own_tenant_rows(
 
 
 async def test_job_forgets_context_raises(db_session: AsyncSession, tenant: Tenant) -> None:
-    target = Target(id=uuid.uuid4(), tenant_id=tenant.id, name="t1", target="1.1.1.1")
+    target = Target(id=uuid.uuid4(), tenant_id=tenant.id, kind="ip", value="1.1.1.1", value_normalized="1.1.1.1")
     db_session.add(target)
     await db_session.flush()
 
@@ -78,7 +81,7 @@ async def test_job_forgets_context_raises(db_session: AsyncSession, tenant: Tena
 
 
 async def test_job_raises_leaves_no_context_behind(db_session: AsyncSession, tenant: Tenant) -> None:
-    target = Target(id=uuid.uuid4(), tenant_id=tenant.id, name="t1", target="1.1.1.1")
+    target = Target(id=uuid.uuid4(), tenant_id=tenant.id, kind="ip", value="1.1.1.1", value_normalized="1.1.1.1")
     db_session.add(target)
     await db_session.flush()
 
@@ -87,14 +90,15 @@ async def test_job_raises_leaves_no_context_behind(db_session: AsyncSession, ten
     with pytest.raises(ValueError, match="Something went wrong"):
         await run_job(job_raises_mid_work, payload, db=db_session, tenant_id=tenant.id)
 
-    assert get_current_principal() is None
+    with pytest.raises(RuntimeError, match="No authenticated principal"):
+        get_current_principal()
 
 
 async def test_two_jobs_interleaved_dont_see_each_other(
     db_session: AsyncSession, tenant: Tenant, other_tenant: Tenant
 ) -> None:
-    target1 = Target(id=uuid.uuid4(), tenant_id=tenant.id, name="t1", target="1.1.1.1")
-    target2 = Target(id=uuid.uuid4(), tenant_id=other_tenant.id, name="t2", target="2.2.2.2")
+    target1 = Target(id=uuid.uuid4(), tenant_id=tenant.id, kind="ip", value="1.1.1.1", value_normalized="1.1.1.1")
+    target2 = Target(id=uuid.uuid4(), tenant_id=other_tenant.id, kind="ip", value="2.2.2.2", value_normalized="2.2.2.2")
     db_session.add_all([target1, target2])
     await db_session.flush()
 

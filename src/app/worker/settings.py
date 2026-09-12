@@ -3,7 +3,7 @@
 from typing import ClassVar
 
 import structlog
-from app.core.jobs.job_context import JOB_REGISTRY
+from app.core.auth.job_context import JOB_REGISTRY
 from arq.connections import RedisSettings
 from sqlalchemy.exc import SQLAlchemyError
 
