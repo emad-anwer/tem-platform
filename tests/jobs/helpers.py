@@ -8,7 +8,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.context import reset_current_principal, set_current_principal
 from app.core.auth.principal import Principal, Role
 
 
@@ -59,18 +58,4 @@ async def run_job(
         "tenant_id": tenant_id,
     }
 
-    token = None
-    if tenant_id is not None:
-        token = set_current_principal(
-            Principal(
-                user_id=f"system:job:{resolved_job_id}",
-                tenant_id=tenant_id,
-                role=Role.OWNER,
-            )
-        )
-
-    try:
-        return await job_fn(ctx, *args, **kwargs)
-    finally:
-        if token is not None:
-            reset_current_principal(token)
+    return await job_fn(ctx, *args, **kwargs)

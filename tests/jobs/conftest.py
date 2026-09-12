@@ -17,3 +17,13 @@ async def tenant(db_session: AsyncSession) -> Tenant:
         name="Job Test Tenant",
         slug="job-test-tenant",
     )
+
+
+@pytest_asyncio.fixture
+async def other_tenant(db_session: AsyncSession) -> Tenant:
+    """A second provisioned tenant for cross-tenant isolation tests."""
+    svc = TenantService(db_session)
+    return await svc.create_tenant(
+        name="Other Job Test Tenant",
+        slug="other-job-test-tenant",
+    )
