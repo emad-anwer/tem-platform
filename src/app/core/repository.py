@@ -1,7 +1,7 @@
 """Database access for shared platform entities."""
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.context import get_current_principal
 from app.core.auth.principal import Principal, Role
+from app.core.jobs.states import ScanRunStatus, transition_status
 from app.core.models import Finding, ScanRun, Target, Tenant, TenantOwnedMixin
 from app.core.pagination import decode_cursor, encode_cursor
 
@@ -389,12 +390,117 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
             ]
 
     async def create(self, **attributes: Any) -> ScanRun:
+        if attributes.get("status", ScanRunStatus.QUEUED) != ScanRunStatus.QUEUED:
+            raise ValueError("Scan runs must be created in the queued state.")
         self._truncate_error_message(attributes)
         return await super().create(**attributes)
 
     async def update(self, entity_id: UUID | str, **attributes: Any) -> ScanRun | None:
+        if "status" in attributes:
+            raise ValueError("Use a lifecycle method to change scan run status.")
         self._truncate_error_message(attributes)
         return await super().update(entity_id, **attributes)
+
+    async def claim_for_job(self, run_id: UUID | str, *, job_id: str) -> ScanRun | None:
+        entity_uuid = _coerce_uuid(run_id, "run_id")
+        result = await self._session.execute(
+            self._scope_select(select(self.model))
+            .where(self.model.id == entity_uuid)
+            .with_for_update()
+        )
+        run = result.scalar_one_or_none()
+        if run is None or run.status in {ScanRunStatus.SUCCEEDED, ScanRunStatus.FAILED}:
+            return None
+        if run.status == ScanRunStatus.RUNNING:
+            return run if run.arq_job_id == job_id else None
+
+        transition_status(run.status, ScanRunStatus.RUNNING)
+        run.status = ScanRunStatus.RUNNING
+        run.arq_job_id = job_id
+        run.started_at = datetime.now(UTC)
+        self._session.add(run)
+        await self._session.commit()
+        await self._session.refresh(run)
+        return run
+
+    async def record_retry(
+        self,
+        run_id: UUID | str,
+        *,
+        attempt: int,
+        error_message: str,
+    ) -> ScanRun:
+        run = await self.get_by_id(run_id)
+        if run is None:
+            raise ValueError("Scan run not found.")
+        if run.status != ScanRunStatus.RUNNING:
+            raise ValueError("Only running scan runs can be retried.")
+        run.attempt = attempt
+        run.error_kind = "retryable"
+        run.error_message = error_message[:MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH]
+        self._session.add(run)
+        await self._session.commit()
+        await self._session.refresh(run)
+        return run
+
+    async def succeed(self, run_id: UUID | str) -> ScanRun:
+        return await self._finish(run_id, ScanRunStatus.SUCCEEDED)
+
+    async def fail(
+        self,
+        run_id: UUID | str,
+        *,
+        error_kind: str,
+        error_message: str,
+        attempt: int,
+    ) -> ScanRun:
+        run = await self.get_by_id(run_id)
+        if run is None:
+            raise ValueError("Scan run not found.")
+        if run.status in {ScanRunStatus.SUCCEEDED, ScanRunStatus.FAILED}:
+            return run
+        transition_status(run.status, ScanRunStatus.FAILED)
+        run.status = ScanRunStatus.FAILED
+        run.attempt = attempt
+        run.error_kind = error_kind
+        run.error_message = error_message[:MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH]
+        run.finished_at = datetime.now(UTC)
+        self._session.add(run)
+        await self._session.commit()
+        await self._session.refresh(run)
+        return run
+
+    async def fail_stale(self, *, before: datetime) -> int:
+        result = await self._session.execute(
+            select(self.model).where(
+                self.model.status == ScanRunStatus.RUNNING,
+                self.model.started_at < before,
+            )
+        )
+        runs = list(result.scalars().all())
+        for run in runs:
+            transition_status(run.status, ScanRunStatus.FAILED)
+            run.status = ScanRunStatus.FAILED
+            run.error_kind = "stale"
+            run.error_message = "stale: worker exceeded its deadline"
+            run.finished_at = datetime.now(UTC)
+        if runs:
+            await self._session.commit()
+        return len(runs)
+
+    async def _finish(self, run_id: UUID | str, status: ScanRunStatus) -> ScanRun:
+        run = await self.get_by_id(run_id)
+        if run is None:
+            raise ValueError("Scan run not found.")
+        if run.status in {ScanRunStatus.SUCCEEDED, ScanRunStatus.FAILED}:
+            return run
+        transition_status(run.status, status)
+        run.status = status
+        run.finished_at = datetime.now(UTC)
+        self._session.add(run)
+        await self._session.commit()
+        await self._session.refresh(run)
+        return run
 
     def _cursor_columns(self) -> tuple[Any, ...]:
         return CreatedAtIdCursor.columns(self.model)

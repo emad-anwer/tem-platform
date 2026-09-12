@@ -113,6 +113,7 @@ class WorkerSettings:
     # ------------------------------------------------------------------
 
     max_jobs: int = 10
+    max_tries: int = 3
     job_timeout: int = 300  # seconds
     job_completion_wait: int = 300  # seconds to drain after SIGTERM
     health_check_interval: int = 30  # seconds
