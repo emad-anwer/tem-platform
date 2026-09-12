@@ -30,3 +30,46 @@ def system_principal(*, tenant_id: uuid.UUID, job_name: str, job_id: str) -> Pri
         role=Role.SYSTEM,
         tenant_id=tenant_id,
     )
+
+
+def tenant_job(func: _F) -> _F:
+    """Decorator to mark a function as a tenant-scoped job.
+
+    The decorated function must accept a payload argument that is an instance of TenantScopedPayload.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(
+        ctx: dict[str, Any], payload: TenantScopedPayload, *args: Any, **kwargs: Any
+    ) -> Any:
+        tenant_id = getattr(payload, "tenant_id", None)
+        if not isinstance(tenant_id, uuid.UUID):
+            raise TypeError(
+                f"Payload must have a tenant_id attribute of type uuid.UUID, got {type(tenant_id)}"
+            )
+
+        job_id = str(ctx.get("job_id", "unknown"))
+        principal = system_principal(
+            tenant_id=tenant_id, job_name=func.__name__, job_id=job_id
+        )
+
+        principal_token = set_current_principal(principal)
+        structlog.contextvars.bind_contextvars(
+            tenant_id=str(tenant_id), job_id=job_id, job_name=func.__name__
+        )
+
+        try:
+            return await func(ctx, payload, *args, **kwargs)
+        finally:
+            reset_current_principal(principal_token)
+            structlog.contextvars.clear_contextvars()
+            logger.debug(
+                "Job finished",
+                job_name=func.__name__,
+                job_id=job_id,
+                tenant_id=str(tenant_id),
+            )
+
+    wrapper.__tenant_job__ = True  # type: ignore[attr-defined]
+    JOB_REGISTRY[func.__name__] = wrapper  # type: ignore[arg-type]
+    return wrapper  # type: ignore[return-value]
