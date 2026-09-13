@@ -1,9 +1,13 @@
+from sqlite3 import IntegrityError
+
 from fastapi import Depends
+from pydantic import ValidationError
 
 from app.core.auth.dependencies import get_principal
 from app.core.auth.principal import Principal, Role
 from app.core.db import get_db
-from app.core.errors import ForbiddenError
+from app.core.errors import ConflictError, ForbiddenError
+from app.core.pipeline.validation import TargetKind, normalize_target
 from app.core.repository import TargetRepository, ScanRunRepository, FindingRepository
 from app.core.models import Finding, ScanRun, Target
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,8 +35,27 @@ class PipelineService:
             )
 
     # ----------------Targets---------------
-    async def create_target(self, *, kind: str, value: str) -> Target:
+    async def create_target(self, *, kind: TargetKind, value: str) -> Target:
         self._require_writer()
-        return await self._targets.create(
-            tenant_id=self._principal.tenant_id, kind=kind, value=value
-        )
+
+        try:
+            value_normalized = normalize_target(kind, value)
+        except ValueError as exc:
+            raise ValidationError(
+                detail="Target value failed validation.",
+                errors=[{"field": "value", "message": str(exc)}],
+            ) from exc
+
+        try:
+            return await self._targets.create(
+                tenant_id=self._principal.tenant_id,
+                kind=kind.value,
+                value=value,
+                value_normalized=value_normalized,
+                is_active=True,
+            )
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise ConflictError(
+                detail="A target with this kind and value already exists for your tenant."
+            ) from exc

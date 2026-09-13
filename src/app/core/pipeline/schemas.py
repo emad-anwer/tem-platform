@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
+from uuid import UUID
+from alembic.environment import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.pipeline.validation import TargetKind
@@ -38,3 +41,17 @@ class TargetAttributes(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class TargetResource(BaseModel):
+    type: Literal["targets"] = "targets"
+    id: UUID
+    attributes: TargetAttributes
+
+    @classmethod
+    def from_model(cls, target: Any) -> "TargetResource":
+        return cls(id=target.id, attributes=TargetAttributes.model_validate(target))
+
+
+class TargetDocument(BaseModel):
+    data: TargetResource
