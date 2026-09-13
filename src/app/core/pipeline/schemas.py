@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.pipeline.validation import TargetKind
+
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {"domain", "ipv4", "ipv6", "cidr", "keyword", "brand_name", "app_store_url"}
 )
@@ -11,16 +13,15 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
 class TargetCreateRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    kind: str = Field(..., min_length=1, max_length=32)
+    kind: TargetKind
     value: str = Field(..., min_length=1, max_length=2048)
 
-    @field_validator("kind")
+    @field_validator("kind", mode="before")
     @classmethod
-    def validate_kind(cls, value: str) -> str:
-        v = value.strip().lower()
-        if v not in ALLOWED_TARGET_KINDS:
-            raise ValueError(f"kind must be one of {sorted(ALLOWED_TARGET_KINDS)}")
-        return v
+    def _normalize_kind_casing(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
 
 class CollectionLinks(BaseModel):

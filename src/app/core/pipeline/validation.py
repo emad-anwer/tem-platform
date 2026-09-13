@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+from enum import StrEnum
 import ipaddress
 import re
 from urllib.parse import urlsplit, urlunsplit
+
+
+class TargetKind(StrEnum):
+    DOMAIN = "domain"
+    IPV4 = "ipv4"
+    IPV6 = "ipv6"
+    CIDR = "cidr"
+    KEYWORD = "keyword"
+    BRAND_NAME = "brand_name"
+    APP_STORE_URL = "app_store_url"
+
 
 _DOMAIN_LABEL_RE = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 MAX_DOMAIN_LENGTH = 253
@@ -77,17 +89,17 @@ def normalize_app_store_url(value: str) -> str:
     return urlunsplit((parts.scheme, host, path, parts.query, ""))
 
 
-def normalize_target(kind: str, value: str) -> str:
-    if kind == "domain":
-        return normalize_domain(value)
-    if kind == "ipv4":
-        return normalize_ip(value, version=4)
-    if kind == "ipv6":
-        return normalize_ip(value, version=6)
-    if kind == "cidr":
-        return normalize_cidr(value)
-    if kind in ("keyword", "brand_name"):
-        return normalize_keyword(value)
-    if kind == "app_store_url":
-        return normalize_app_store_url(value)
-    raise ValueError(f"unsupported target kind: {kind!r}")
+def normalize_target(kind: TargetKind, value: str) -> str:
+    match kind:
+        case TargetKind.DOMAIN:
+            return normalize_domain(value)
+        case TargetKind.IPV4:
+            return normalize_ip(value, version=4)
+        case TargetKind.IPV6:
+            return normalize_ip(value, version=6)
+        case TargetKind.CIDR:
+            return normalize_cidr(value)
+        case TargetKind.KEYWORD | TargetKind.BRAND_NAME:
+            return normalize_keyword(value)
+        case TargetKind.APP_STORE_URL:
+            return normalize_app_store_url(value)
