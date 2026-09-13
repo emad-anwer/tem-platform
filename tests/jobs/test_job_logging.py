@@ -4,13 +4,13 @@ import dataclasses
 import uuid
 from typing import Any
 
+import pytest
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.job_context import tenant_job
 from app.core.models import Tenant
 from tests.jobs.helpers import run_job
-import pytest
 
 logger = structlog.get_logger(__name__)
 
@@ -78,13 +78,13 @@ async def test_job_failure_log_contains_tenant_context(
     db_session: AsyncSession, tenant: Tenant
 ) -> None:
     payload = LoggingPayload(tenant_id=tenant.id)
-    with structlog.testing.capture_logs(
-        processors=[structlog.contextvars.merge_contextvars]
-    ) as captured:
-        with pytest.raises(ValueError, match="boom"):
-            await run_job(
-                job_raises_after_log, payload, db=db_session, tenant_id=tenant.id
-            )
+    with (
+        structlog.testing.capture_logs(
+            processors=[structlog.contextvars.merge_contextvars]
+        ) as captured,
+        pytest.raises(ValueError, match="boom"),
+    ):
+        await run_job(job_raises_after_log, payload, db=db_session, tenant_id=tenant.id)
 
     failed = [entry for entry in captured if entry["event"] == "job.failed"]
     assert len(failed) == 1
