@@ -6,6 +6,7 @@ import structlog
 from arq.connections import RedisSettings
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core import discovery  # noqa: F401, register discovery jobs
 from app.core.auth.job_context import JOB_REGISTRY
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine, wait_for_db
