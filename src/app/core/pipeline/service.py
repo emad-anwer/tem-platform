@@ -1,12 +1,13 @@
 from sqlite3 import IntegrityError
 
+from uuid import UUID
 from fastapi import Depends
 from pydantic import ValidationError
 
 from app.core.auth.dependencies import get_principal
 from app.core.auth.principal import Principal, Role
 from app.core.db import get_db
-from app.core.errors import ConflictError, ForbiddenError
+from app.core.errors import ConflictError, ForbiddenError, NotFoundError
 from app.core.pipeline.validation import TargetKind, normalize_target
 from app.core.repository import TargetRepository, ScanRunRepository, FindingRepository
 from app.core.models import Finding, ScanRun, Target
@@ -59,3 +60,24 @@ class PipelineService:
             raise ConflictError(
                 detail="A target with this kind and value already exists for your tenant."
             ) from exc
+
+    async def list_targets(
+        self, *, size: int, cursor: str | None
+    ) -> tuple[list[Target], str | None]:
+        try:
+            return await self._targets.list(
+                tenant_id=self._principal.tenant_id, limit=size, cursor=cursor
+            )
+        except ValueError as exc:
+            raise ValidationError(
+                detail="Invalid cursor value.",
+                errors=[{"field": "cursor", "message": str(exc)}],
+            ) from exc
+
+    async def get_target_or_404(self, target_id: UUID) -> Target:
+        target = await self._targets.get_by_id(
+            target_id, tenant_id=self._principal.tenant_id
+        )
+        if target is None:
+            raise NotFoundError(detail=f"Target '{target_id}' not found.")
+        return target
