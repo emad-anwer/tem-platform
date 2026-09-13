@@ -15,6 +15,7 @@ class Role(enum.StrEnum):
     OWNER = "owner"
     ANALYST = "analyst"
     VIEWER = "viewer"
+    SYSTEM = "system"  # for background jobs, not a real user
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
