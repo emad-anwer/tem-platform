@@ -223,3 +223,34 @@ async def test_job_principal_has_system_role(
 
     assert principal.role == Role.SYSTEM
     assert principal.tenant_id == tenant.id
+
+
+async def test_job_raises_mid_work_leaves_no_context_behind(
+    db_session: AsyncSession, tenant: Tenant
+) -> None:
+    payload = MockPayload(tenant_id=tenant.id, target_id=uuid.uuid4())
+
+    with pytest.raises(ValueError, match="Something went wrong"):
+        await run_job(job_raises_mid_work, payload, db=db_session, tenant_id=tenant.id)
+
+    with pytest.raises(RuntimeError, match="No authenticated principal"):
+        get_current_principal()
+
+
+async def test_outer_principal_restored_after_job_raises(
+    db_session: AsyncSession, tenant: Tenant
+) -> None:
+    outer_principal = Principal(
+        user_id="outer-user", role=Role.OWNER, tenant_id=tenant.id
+    )
+    token = set_current_principal(outer_principal)
+    try:
+        payload = MockPayload(tenant_id=tenant.id, target_id=uuid.uuid4())
+        with pytest.raises(ValueError, match="Something went wrong"):
+            await run_job(
+                job_raises_mid_work, payload, db=db_session, tenant_id=tenant.id
+            )
+        restored = get_current_principal()
+        assert restored is outer_principal
+    finally:
+        reset_current_principal(token)
