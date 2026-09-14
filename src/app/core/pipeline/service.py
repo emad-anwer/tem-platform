@@ -1,4 +1,4 @@
-from sqlite3 import IntegrityError
+from sqlalchemy.exc import IntegrityError
 
 from uuid import UUID
 from fastapi import Depends
@@ -175,4 +175,7 @@ class PipelineService:
                 scan_run_id=scan_run_id,
             )
         except ValueError as exc:
-            raise BadRequestError(detail="Invalid cursor.") from exc
+            raise ValidationError(
+                detail="Invalid cursor value.",
+                errors=[{"field": "cursor", "message": str(exc)}],
+            ) from exc
