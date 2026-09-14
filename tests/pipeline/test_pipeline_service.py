@@ -54,15 +54,6 @@ async def test_create_target_viewer_is_forbidden(db_session, two_tenants):
         await service.create_target(kind=TargetKind.DOMAIN, value="example.com")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG #3: service.py raises `from pydantic import ValidationError` "
-        "as `ValidationError(detail=..., errors=[...])`. Pydantic's "
-        "ValidationError has no such constructor -- this raises a bare "
-        "TypeError instead of app.core.errors.ValidationError."
-    ),
-)
 async def test_create_target_invalid_domain_raises_app_validation_error(
     db_session, two_tenants
 ):
@@ -77,15 +68,6 @@ async def test_create_target_invalid_domain_raises_app_validation_error(
     assert exc_info.value.errors[0]["field"] == "value"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG #2: service.py does `from sqlite3 import IntegrityError`. "
-        "SQLAlchemy raises sqlalchemy.exc.IntegrityError, a different "
-        "class never caught by this except clause -- it propagates "
-        "uncaught instead of becoming app.core.errors.ConflictError."
-    ),
-)
 async def test_create_target_duplicate_raises_conflict_error(db_session, two_tenants):
     tenant_a, _ = two_tenants
     principal = _owner(tenant_a.id)
@@ -98,15 +80,6 @@ async def test_create_target_duplicate_raises_conflict_error(db_session, two_ten
         await service.create_target(kind=TargetKind.DOMAIN, value="dupe.example.com")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG #5: list_targets() calls "
-        "self._targets.list(tenant_id=self._principal.tenant_id, ...) but "
-        "TargetRepository.list(self, *, limit=50, cursor=None, kind=None, "
-        "is_active=None) has no tenant_id parameter -- raises TypeError."
-    ),
-)
 async def test_list_targets_returns_only_current_tenant_items(db_session, two_tenants):
     tenant_a, tenant_b = two_tenants
 
@@ -127,15 +100,6 @@ async def test_list_targets_returns_only_current_tenant_items(db_session, two_te
     assert next_cursor is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG #4: get_target_or_404() calls "
-        "self._targets.get_by_id(target_id, tenant_id=...) but "
-        "TenantScopedRepository.get_by_id(self, entity_id) accepts no "
-        "tenant_id kwarg -- raises TypeError."
-    ),
-)
 async def test_get_target_or_404_returns_owned_target(db_session, two_tenants):
     tenant_a, _ = two_tenants
     principal = _owner(tenant_a.id)
@@ -150,14 +114,7 @@ async def test_get_target_or_404_returns_owned_target(db_session, two_tenants):
     assert fetched.id == created.id
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Same root cause as test_get_target_or_404_returns_owned_target (bug #4).",
-)
 async def test_get_target_or_404_cross_tenant_is_not_found(db_session, two_tenants):
-    """Per ADR-0003 §9 / the week-2 BOLA rule: a target belonging to
-    another tenant must 404, not 403 -- the behavior this locks in once
-    bug #4 is fixed."""
     tenant_a, tenant_b = two_tenants
 
     principal_a = _owner(tenant_a.id)

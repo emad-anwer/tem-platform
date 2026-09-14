@@ -2,18 +2,17 @@ from sqlalchemy.exc import IntegrityError
 
 from uuid import UUID
 from fastapi import Depends
-from pydantic import ValidationError
 import structlog
 
 from app.core.auth.dependencies import get_principal
 from app.core.auth.principal import Principal, Role
 from app.core.db import get_db
 from app.core.errors import (
-    BadRequestError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
     ServiceUnavailableError,
+    ValidationError,
 )
 from app.core.jobs.states import ScanRunStatus
 from app.core.pipeline.validation import TargetKind, normalize_target
