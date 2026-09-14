@@ -7,7 +7,7 @@ from arq.connections import RedisSettings
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.auth.job_context import JOB_REGISTRY
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
 from app.core.jobs import scan  # noqa: F401, register scan jobs
 from app.core.logging import setup_logging

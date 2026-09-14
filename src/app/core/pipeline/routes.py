@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from uuid import UUID
-from fastapi import APIRouter, Query, Request, status, Depends, Response
+
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.core.errors import COMMON_ERROR_RESPONSES, BadRequestError
 from app.core.pipeline.schemas import (
     CollectionLinks,
     FindingCollectionDocument,
     FindingResource,
-    FindingCollectionDocument,
     ScanRunDocument,
     ScanRunResource,
     TargetCollectionDocument,

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Any
+from typing import Any, Literal
 from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.jobs.states import ScanRunStatus, ErrorKind
+from app.core.jobs.states import ErrorKind, ScanRunStatus
 from app.core.pipeline.validation import TargetKind
 
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
@@ -50,7 +51,7 @@ class TargetResource(BaseModel):
     attributes: TargetAttributes
 
     @classmethod
-    def from_model(cls, target: Any) -> "TargetResource":
+    def from_model(cls, target: Any) -> TargetResource:
         return cls(id=target.id, attributes=TargetAttributes.model_validate(target))
 
 
@@ -93,7 +94,7 @@ class ScanRunResource(BaseModel):
     attributes: ScanRunAttributes
 
     @classmethod
-    def from_model(cls, run: Any) -> "ScanRunResource":
+    def from_model(cls, run: Any) -> ScanRunResource:
         return cls(id=run.id, attributes=ScanRunAttributes.model_validate(run))
 
 
@@ -128,7 +129,7 @@ class FindingResource(BaseModel):
     attributes: FindingAttributes
 
     @classmethod
-    def from_model(cls, finding: Any) -> "FindingResource":
+    def from_model(cls, finding: Any) -> FindingResource:
         return cls(id=finding.id, attributes=FindingAttributes.model_validate(finding))
 
 

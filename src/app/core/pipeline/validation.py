@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from enum import StrEnum
 import ipaddress
 import re
+from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -23,8 +23,7 @@ MAX_KEYWORD_LENGTH = 255
 
 def normalize_domain(value: str) -> str:
     v = value.strip().lower()
-    if v.endswith("."):
-        v = v[:-1]
+    v = v.removesuffix(".")
     if not v:
         raise ValueError("domain must not be empty")
     if "*" in v:

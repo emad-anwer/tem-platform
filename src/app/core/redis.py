@@ -2,10 +2,11 @@ import asyncio
 import logging
 import time
 
+from arq import ArqRedis
+from arq.connections import RedisSettings as ArqRedisSettings
+from arq.connections import create_pool
 from redis.asyncio import Connection, ConnectionPool, Redis, SSLConnection
 from redis.exceptions import RedisError
-from arq import ArqRedis
-from arq.connections import RedisSettings as ArqRedisSettings, create_pool
 
 from app.core.config import Settings, get_settings
 
