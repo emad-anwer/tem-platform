@@ -9,6 +9,7 @@ from app.core.auth.dependencies import get_principal
 from app.core.auth.principal import Principal, Role
 from app.core.db import get_db
 from app.core.errors import (
+    BadRequestError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
@@ -156,3 +157,22 @@ class PipelineService:
         if scan_run is None:
             raise NotFoundError(detail=f"Scan run '{scan_run_id}' not found.")
         return scan_run
+
+    # ------------------Findings---------------
+    async def list_findings(
+        self,
+        *,
+        size: int,
+        cursor: str | None,
+        target_id: UUID | None,
+        scan_run_id: UUID | None,
+    ) -> tuple[list[Finding], str | None]:
+        try:
+            return await self._findings.list(
+                limit=size,
+                cursor=cursor,
+                target_id=target_id,
+                scan_run_id=scan_run_id,
+            )
+        except ValueError as exc:
+            raise BadRequestError(detail="Invalid cursor.") from exc

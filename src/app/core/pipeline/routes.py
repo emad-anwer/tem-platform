@@ -6,6 +6,9 @@ from fastapi import APIRouter, Query, Request, status, Depends, Response
 from app.core.errors import COMMON_ERROR_RESPONSES, BadRequestError
 from app.core.pipeline.schemas import (
     CollectionLinks,
+    FindingCollectionDocument,
+    FindingResource,
+    FindingCollectionDocument,
     ScanRunDocument,
     ScanRunResource,
     TargetCollectionDocument,
@@ -106,3 +109,27 @@ async def get_scan_run(
 ) -> ScanRunDocument:
     scan_run = await service.get_scan_run_or_404(scan_run_id)
     return ScanRunDocument(data=ScanRunResource.from_model(scan_run))
+
+
+@router.get(
+    "/api/v1/findings",
+    response_model=FindingCollectionDocument,
+    summary="List findings",
+)
+async def list_findings(
+    request: Request,
+    size: int = Query(default=20),
+    cursor: str | None = Query(default=None),
+    target_id: UUID | None = Query(default=None),
+    scan_run_id: UUID | None = Query(default=None),
+    service: PipelineService = Depends(get_pipeline_service),
+) -> FindingCollectionDocument:
+    _check_known_params(request, _FINDINGS_PARAMS)
+    size = _parse_size(size)
+    items, next_cursor = await service.list_findings(
+        size=size, cursor=cursor, target_id=target_id, scan_run_id=scan_run_id
+    )
+    return FindingCollectionDocument(
+        data=[FindingResource.from_model(f) for f in items],
+        links=_links(request, next_cursor),
+    )

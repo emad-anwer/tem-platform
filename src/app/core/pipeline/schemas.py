@@ -99,3 +99,39 @@ class ScanRunResource(BaseModel):
 
 class ScanRunDocument(BaseModel):
     data: ScanRunResource
+
+
+###########Findings#########
+class FindingAttributes(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    target_id: UUID
+    last_seen_run_id: UUID | None
+    kind: str
+    value: str
+    value_normalized: str
+    fingerprint: str
+    severity: str
+    raw_severity: str | None
+    status: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+    times_seen: int
+    details: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class FindingResource(BaseModel):
+    type: Literal["findings"] = "findings"
+    id: UUID
+    attributes: FindingAttributes
+
+    @classmethod
+    def from_model(cls, finding: Any) -> "FindingResource":
+        return cls(id=finding.id, attributes=FindingAttributes.model_validate(finding))
+
+
+class FindingCollectionDocument(BaseModel):
+    data: list[FindingResource]
+    links: CollectionLinks
