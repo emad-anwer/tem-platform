@@ -59,6 +59,7 @@ class DNSSource:
         self._resolver = resolver or dns.asyncresolver.Resolver()
         self._concurrency = concurrency
         self._timeout = timeout
+        self._semaphore = asyncio.Semaphore(concurrency)
 
     async def collect(self, domain: str) -> SourceResult:
         try:
@@ -68,18 +69,18 @@ class DNSSource:
         return SourceResult({domain})
 
     async def resolve(self, hostname: str) -> set[str]:
-        semaphore = asyncio.Semaphore(self._concurrency)
-
         async def resolve_type(record_type: str) -> set[str]:
-            async with semaphore:
+            async with self._semaphore:
                 try:
                     answer = await self._resolver.resolve(
                         hostname,
                         record_type,
                         lifetime=self._timeout,
                     )
-                except dns.exception.DNSException:
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
                     return set()
+                except (dns.resolver.Timeout, dns.resolver.NoNameservers, dns.exception.DNSException) as e:
+                    raise dns.exception.DNSException(f"DNS infrastructure failure: {type(e).__name__}") from e
                 return {
                     _normalise_hostname(str(record))
                     for record in answer
@@ -92,19 +93,22 @@ class DNSSource:
         return {hostname, *(item for group in records for item in group)}
 
     async def resolve_many(self, hostnames: Iterable[str]) -> SourceResult:
-        semaphore = asyncio.Semaphore(self._concurrency)
         names = sorted(set(hostnames))
+        degraded = False
+        note = None
 
         async def resolve_one(hostname: str) -> set[str]:
-            async with semaphore:
-                try:
-                    return await self.resolve(hostname)
-                except dns.exception.DNSException:
-                    return set()
+            nonlocal degraded, note
+            try:
+                return await self.resolve(hostname)
+            except dns.exception.DNSException as e:
+                degraded = True
+                note = f"DNS infrastructure failure: {type(e).__name__}"
+                return set()
 
         results = await asyncio.gather(*(resolve_one(name) for name in names))
         resolved = {item for group in results for item in group}
-        return SourceResult(resolved)
+        return SourceResult(resolved, degraded=degraded, note=note)
 
 
 class CertificateTransparencySource:
@@ -168,16 +172,25 @@ async def discover_domain(
     results = await asyncio.gather(*(source.collect(domain) for source in source_list))
     names = {domain}
     degraded: list[str] = []
+    degradation_notes: list[str] = []
     for source, result in zip(source_list, results, strict=True):
         names.update(result.items)
         if result.degraded:
             degraded.append(source.name)
+            if result.note:
+                degradation_notes.append(f"{source.name}: {result.note}")
 
     dns_source = next(
         (source for source in source_list if isinstance(source, DNSSource)), None
     )
     if dns_source is not None:
-        names.update((await dns_source.resolve_many(names)).items)
+        dns_result = await dns_source.resolve_many(names)
+        names.update(dns_result.items)
+        if dns_result.degraded:
+            if dns_source.name not in degraded:
+                degraded.append(dns_source.name)
+            if dns_result.note:
+                degradation_notes.append(f"{dns_source.name}: {dns_result.note}")
 
     names = {
         name
@@ -190,6 +203,7 @@ async def discover_domain(
         run.id,
         [source.name for source in source_list],
         degraded,
+        degradation_notes,
     )
 
     if persist_finding:
@@ -245,6 +259,7 @@ async def _record_sources(
     run_id: Any,
     attempted: list[str],
     degraded: list[str],
+    degradation_notes: list[str] | None = None,
 ) -> None:
     repository = ScanRunRepository(session)
     run = await repository.get_by_id(run_id)
@@ -252,13 +267,16 @@ async def _record_sources(
         raise ValueError("Scan run not found.")
     run.sources_attempted = attempted
     run.sources_degraded = degraded
+    if degradation_notes:
+        run.error_message = "; ".join(degradation_notes)
     session.add(run)
     await session.commit()
 
 
 def _normalise_hostname(value: str) -> str:
     name = value.strip().lower().rstrip(".")
-    name = name.removeprefix("*.")
+    if name.startswith("*."):
+        return ""
     try:
         return name.encode("idna").decode("ascii")
     except UnicodeError:
