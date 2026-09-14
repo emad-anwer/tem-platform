@@ -79,8 +79,14 @@ class DNSSource:
                     )
                 except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
                     return set()
-                except (dns.resolver.Timeout, dns.resolver.NoNameservers, dns.exception.DNSException) as e:
-                    raise dns.exception.DNSException(f"DNS infrastructure failure: {type(e).__name__}") from e
+                except (
+                    dns.resolver.Timeout,
+                    dns.resolver.NoNameservers,
+                    dns.exception.DNSException,
+                ) as e:
+                    raise dns.exception.DNSException(
+                        f"DNS infrastructure failure: {type(e).__name__}"
+                    ) from e
                 return {
                     _normalise_hostname(str(record))
                     for record in answer
