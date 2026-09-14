@@ -64,6 +64,8 @@ class DNSSource:
     async def collect(self, domain: str) -> SourceResult:
         try:
             await self.resolve(domain)
+        except dns.resolver.NXDOMAIN:
+            return SourceResult(set())
         except dns.exception.DNSException:
             return SourceResult(set(), degraded=True, note="DNS lookup failed")
         return SourceResult({domain})
@@ -77,7 +79,9 @@ class DNSSource:
                         record_type,
                         lifetime=self._timeout,
                     )
-                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+                except dns.resolver.NXDOMAIN:
+                    raise
+                except dns.resolver.NoAnswer:
                     return set()
                 except (
                     dns.resolver.Timeout,
@@ -96,7 +100,7 @@ class DNSSource:
         records = await asyncio.gather(
             *(resolve_type(kind) for kind in DNS_RECORD_TYPES)
         )
-        return {hostname, *(item for group in records for item in group)}
+        return {item for group in records for item in group}
 
     async def resolve_many(self, hostnames: Iterable[str]) -> SourceResult:
         names = sorted(set(hostnames))
@@ -107,6 +111,8 @@ class DNSSource:
             nonlocal degraded, note
             try:
                 return await self.resolve(hostname)
+            except dns.resolver.NXDOMAIN:
+                return set()
             except dns.exception.DNSException as e:
                 degraded = True
                 note = f"DNS infrastructure failure: {type(e).__name__}"
