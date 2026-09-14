@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Any
 from uuid import UUID
-from alembic.environment import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.jobs.states import ScanRunStatus, ErrorKind
 from app.core.pipeline.validation import TargetKind
 
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
@@ -13,6 +13,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
 )
 
 
+######### Targets #########
 class TargetCreateRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -60,3 +61,41 @@ class TargetDocument(BaseModel):
 class TargetCollectionDocument(BaseModel):
     data: list[TargetResource]
     links: CollectionLinks
+
+
+##########Scan Runs##########
+class ScanRunAttributes(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    target_id: UUID
+    status: ScanRunStatus
+    attempt: int
+    max_attempts: int
+    arq_job_id: str | None
+    sources_attempted: list[Any]
+    sources_degraded: list[Any]
+    findings_count: int
+    new_findings_count: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_kind: ErrorKind | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ScanRunResource(BaseModel):
+    # NOTE: type "scan_runs" per ADR-0003 §9. If your team wants the issue's
+    # literal "/scans" path instead, change this Literal to "scans" too, to
+    # keep the JSON:API `type` consistent with the path.
+    type: Literal["scan_runs"] = "scan_runs"
+    id: UUID
+    attributes: ScanRunAttributes
+
+    @classmethod
+    def from_model(cls, run: Any) -> "ScanRunResource":
+        return cls(id=run.id, attributes=ScanRunAttributes.model_validate(run))
+
+
+class ScanRunDocument(BaseModel):
+    data: ScanRunResource

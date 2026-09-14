@@ -6,6 +6,8 @@ from fastapi import APIRouter, Query, Request, status, Depends, Response
 from app.core.errors import COMMON_ERROR_RESPONSES, BadRequestError
 from app.core.pipeline.schemas import (
     CollectionLinks,
+    ScanRunDocument,
+    ScanRunResource,
     TargetCollectionDocument,
     TargetCreateRequest,
     TargetDocument,
@@ -75,3 +77,32 @@ async def list_targets(
         data=[TargetResource.from_model(item) for item in items],
         links=_links(request, next_cursor),
     )
+
+
+@router.post(
+    "/api/v1/targets/{target_id}/scans",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ScanRunDocument,
+    summary="Start a scan against a target",
+)
+async def start_scan(
+    target_id: UUID,
+    response: Response,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> ScanRunDocument:
+    scan_run = await service.start_scan(target_id=target_id)
+    response.headers["Location"] = f"/api/v1/scan_runs/{scan_run.id}"
+    return ScanRunDocument(data=ScanRunResource.from_model(scan_run))
+
+
+@router.get(
+    "/api/v1/scan_runs/{scan_run_id}",
+    response_model=ScanRunDocument,
+    summary="Get scan run state",
+)
+async def get_scan_run(
+    scan_run_id: UUID,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> ScanRunDocument:
+    scan_run = await service.get_scan_run_or_404(scan_run_id)
+    return ScanRunDocument(data=ScanRunResource.from_model(scan_run))
