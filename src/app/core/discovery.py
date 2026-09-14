@@ -173,7 +173,7 @@ async def discover_domain(
 
     source_list = list(sources)
     await _record_sources(
-        ctx["db"], run.id, [source.name for source in source_list], []
+        ctx["db"], run.id, [source.name for source in source_list], [], None
     )
     results = await asyncio.gather(*(source.collect(domain) for source in source_list))
     names = {domain}
