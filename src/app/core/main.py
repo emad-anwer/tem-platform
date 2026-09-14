@@ -18,6 +18,7 @@ from app.core.zitadel.client import (
     dispose_zitadel_client,
     wait_for_zitadel,
 )
+from app.core.pipeline.routes import router as pipeline_router
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(tenant_router)
+    app.include_router(pipeline_router)
     return app
 
 

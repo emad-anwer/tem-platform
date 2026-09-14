@@ -65,9 +65,7 @@ class PipelineService:
         self, *, size: int, cursor: str | None
     ) -> tuple[list[Target], str | None]:
         try:
-            return await self._targets.list(
-                tenant_id=self._principal.tenant_id, limit=size, cursor=cursor
-            )
+            return await self._targets.list(limit=size, cursor=cursor)
         except ValueError as exc:
             raise ValidationError(
                 detail="Invalid cursor value.",

@@ -55,3 +55,8 @@ class TargetResource(BaseModel):
 
 class TargetDocument(BaseModel):
     data: TargetResource
+
+
+class TargetCollectionDocument(BaseModel):
+    data: list[TargetResource]
+    links: CollectionLinks
