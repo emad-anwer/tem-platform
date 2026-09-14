@@ -119,6 +119,7 @@ class PipelineService:
         )
 
         payload = ScanJobPayload(
+            tenant_id=self._principal.tenant_id,
             target_id=target.id,
             scan_run_id=scan_run.id,
         )
@@ -171,7 +172,7 @@ class PipelineService:
                 limit=size,
                 cursor=cursor,
                 target_id=target_id,
-                scan_run_id=scan_run_id,
+                run_id=scan_run_id,
             )
         except ValueError as exc:
             raise ValidationError(

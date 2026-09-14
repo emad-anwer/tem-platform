@@ -46,8 +46,12 @@ DATA_ROUTES: list[tuple[str, str]] = [
     ("GET", "/api/v1/tenants"),
     ("POST", "/api/v1/tenants"),
     ("GET", "/api/v1/tenants/{tenant_id}"),
+    ("GET", "/api/v1/findings"),
+    ("GET", "/api/v1/scan_runs/{scan_run_id}"),
+    ("GET", "/api/v1/targets"),
+    ("POST", "/api/v1/targets"),
+    ("POST", "/api/v1/targets/{target_id}/scans"),
 ]
-
 # ---------------------------------------------------------------------------
 # § Allowlist — code-owned, visible diff, fail-closed schema.
 #
@@ -92,33 +96,7 @@ ALLOWLIST: dict[tuple[str, str], dict[str, Any]] = {
         "reviewed_by": "#40",
         "safe_methods_only": True,
     },
-    ("GET", "/api/v1/findings"): {
-        "reason": "List findings, tenant-scoped, safe GET",
-        "reviewed_by": "#40",
-        "safe_methods_only": True,
-    },
-    ("GET", "/api/v1/scan_runs/{scan_run_id}"): {
-        "reason": "Get scan run details, tenant-scoped, safe GET",
-        "reviewed_by": "#40",
-        "safe_methods_only": True,
-    },
-    ("GET", "/api/v1/targets"): {
-        "reason": "List targets, tenant-scoped, safe GET",
-        "reviewed_by": "#40",
-        "safe_methods_only": True,
-    },
-    ("POST", "/api/v1/targets"): {
-        "reason": "Create target, tenant-scoped, safe POST",
-        "reviewed_by": "#40",
-        "safe_methods_only": True,
-    },
-    ("POST", "/api/v1/targets/{target_id}/scans"): {
-        "reason": "Create scan for target, tenant-scoped, safe POST",
-        "reviewed_by": "#40",
-        "safe_methods_only": True,
-    },
 }
-
 
 # ---------------------------------------------------------------------------
 # § Route introspection helper
