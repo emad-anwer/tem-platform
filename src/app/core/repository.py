@@ -6,6 +6,7 @@ from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy import select, tuple_
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.context import get_current_principal
@@ -596,6 +597,43 @@ class FindingRepository(TenantScopedRepository[Finding]):
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def upsert_discovery(
+        self,
+        *,
+        target_id: UUID,
+        run_id: UUID,
+        value: str,
+        fingerprint: str,
+    ) -> Finding:
+        now = datetime.now(UTC)
+        statement = insert(Finding).values(
+            tenant_id=self.tenant_id,
+            target_id=target_id,
+            last_seen_run_id=run_id,
+            kind="subdomain",
+            value=value,
+            value_normalized=value,
+            fingerprint=fingerprint,
+            severity="info",
+            first_seen_at=now,
+            last_seen_at=now,
+            details={},
+        )
+        statement = statement.on_conflict_do_update(
+            constraint="uq_findings_tenant_fingerprint",
+            set_={
+                "last_seen_at": now,
+                "last_seen_run_id": run_id,
+                "times_seen": Finding.times_seen + 1,
+                "status": "active",
+                "updated_at": now,
+            },
+        ).returning(Finding)
+        result = await self._session.execute(statement)
+        finding = result.scalar_one()
+        await self._session.commit()
+        return finding
 
     async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
         self,
