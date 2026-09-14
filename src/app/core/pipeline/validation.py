@@ -52,8 +52,16 @@ def normalize_domain(value: str) -> str:
 
 
 def normalize_ip(value: str, *, version: int) -> str:
+    v = value.strip()
+    if version == 4:
+        parts = v.split(".")
+        if len(parts) == 4:
+            try:
+                v = ".".join(str(int(p)) for p in parts)
+            except ValueError:
+                pass
     try:
-        addr = ipaddress.ip_address(value.strip())
+        addr = ipaddress.ip_address(v)
     except ValueError as exc:
         raise ValueError(f"invalid IP address: {value!r}") from exc
     if addr.version != version:

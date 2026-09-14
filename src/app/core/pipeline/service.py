@@ -50,9 +50,9 @@ class PipelineService:
     def __init__(self, session: AsyncSession, principal: Principal) -> None:
         self._session = session
         self._principal = principal
-        self._targets = TargetRepository(session)
-        self._scan_runs = ScanRunRepository(session)
-        self._findings = FindingRepository(session)
+        self._targets = TargetRepository(session, tenant_id=principal.tenant_id)
+        self._scan_runs = ScanRunRepository(session, tenant_id=principal.tenant_id)
+        self._findings = FindingRepository(session, tenant_id=principal.tenant_id)
 
     def _require_writer(self) -> None:
         if self._principal.role == Role.VIEWER:
