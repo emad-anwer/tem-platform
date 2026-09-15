@@ -92,6 +92,18 @@ class TestCreateTarget:
 
         assert resp.status_code == 422
 
+    async def test_invalid_body_returns_422(self, auth_client, two_tenants, auth_headers):
+        tenant_a, _ = two_tenants
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        resp = await auth_client.post(
+            "/api/v1/targets",
+            json={"wrong_field": "foo"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
     async def test_viewer_cannot_create_target(
         self, auth_client, two_tenants, auth_headers
     ):
@@ -173,10 +185,13 @@ class TestListTargets:
         # /targets bounds `size` via FastAPI's Query(ge=1, le=100), so this
         # is caught before PipelineService ever runs.
         resp = await auth_client.get("/api/v1/targets?size=0", headers=headers)
-        assert resp.status_code == 422
+        assert resp.status_code == 400
 
         resp = await auth_client.get("/api/v1/targets?size=101", headers=headers)
-        assert resp.status_code == 422
+        assert resp.status_code == 400
+
+        resp = await auth_client.get("/api/v1/targets?size=abc", headers=headers)
+        assert resp.status_code == 400
 
 
 class TestStartScan:
@@ -430,7 +445,7 @@ class TestListFindings:
 
         assert resp.status_code == 400
 
-    async def test_size_zero_rejected_via_service_layer_bound(
+    async def test_size_validation_returns_400(
         self, auth_client, two_tenants, auth_headers
     ):
         tenant_a, _ = two_tenants
@@ -439,9 +454,14 @@ class TestListFindings:
         )
 
         resp = await auth_client.get("/api/v1/findings?size=0", headers=headers)
-
         assert resp.status_code == 400
         assert resp.headers["content-type"].startswith("application/problem+json")
+        
+        resp = await auth_client.get("/api/v1/findings?size=101", headers=headers)
+        assert resp.status_code == 400
+
+        resp = await auth_client.get("/api/v1/findings?size=abc", headers=headers)
+        assert resp.status_code == 400
 
     async def test_filters_by_target_id_and_scan_run_id_are_accepted(
         self, auth_client, two_tenants, auth_headers
