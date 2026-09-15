@@ -123,6 +123,7 @@ class PipelineService:
                 target_id=str(target.id),
                 error=str(exc),
             )
+            await self._scan_runs.delete(scan_run.id)
             raise ServiceUnavailableError(
                 detail="Scan could not be scheduled right now. Please try again."
             ) from exc

@@ -354,6 +354,10 @@ async def test_start_scan_enqueue_failure_raises_service_unavailable_error(
     with pytest.raises(ServiceUnavailableError):
         await service.start_scan(target_id=target.id)
 
+    # Verify that the scan run was cleaned up and not left as a zombie in the DB
+    runs, _ = await service._scan_runs.list_by_target(target.id)
+    assert len(runs) == 0
+
 
 async def test_get_scan_run_or_404_returns_owned_scan_run(
     db_session, two_tenants, monkeypatch
