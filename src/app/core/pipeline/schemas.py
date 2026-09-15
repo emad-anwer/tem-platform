@@ -9,10 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.core.jobs.states import ErrorKind, ScanRunStatus
 from app.core.pipeline.validation import TargetKind
 
-ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
-    {"domain", "ipv4", "ipv6", "cidr", "keyword", "brand_name", "app_store_url"}
-)
-
 
 ######### Targets #########
 class TargetCreateRequest(BaseModel):

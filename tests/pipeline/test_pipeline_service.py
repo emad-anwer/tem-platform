@@ -300,13 +300,12 @@ async def test_start_scan_success_enqueues_job_with_tenant_id(
 
     mock_pool.enqueue_job.assert_called_once()
     call_args = mock_pool.enqueue_job.call_args
-    assert call_args[0][0] == "run_scan"
+    assert call_args[0][0] == "subdomain_discovery_job"
 
-    # Verify ScanJobPayload payload contains required tenant_id
+    # Verify SubdomainDiscoveryPayload payload contains required tenant_id
     payload = call_args[0][1]
     assert payload.tenant_id == tenant_a.id
-    assert payload.target_id == target.id
-    assert payload.scan_run_id == scan_run.id
+    assert payload.run_id == scan_run.id
     assert call_args[1]["_job_id"] == str(scan_run.id)
 
 

@@ -313,12 +313,12 @@ class TestStartScan:
     async def test_scan_job_payload_can_be_built_with_the_fields_start_scan_passes(
         self,
     ):
-        from app.core.pipeline.service import ScanJobPayload
+        from app.core.discovery import SubdomainDiscoveryPayload
 
-        payload = ScanJobPayload(
-            tenant_id=uuid.uuid4(), target_id=uuid.uuid4(), scan_run_id=uuid.uuid4()
+        payload = SubdomainDiscoveryPayload(
+            tenant_id=uuid.uuid4(), run_id=uuid.uuid4()
         )
-        assert payload.target_id is not None
+        assert payload.run_id is not None
 
     async def test_start_scan_http_path_does_not_500_on_payload_construction(
         self, auth_client, two_tenants, auth_headers, fake_arq_pool
@@ -336,7 +336,7 @@ class TestStartScan:
         )
 
         assert resp.status_code == 202, (
-            "If this is 500, ScanJobPayload construction is raising before "
+            "If this is 500, SubdomainDiscoveryPayload construction is raising before "
             "the enqueue try/except — see test_scan_job_payload_can_be_built_"
             "with_the_fields_start_scan_passes for the root cause."
         )
