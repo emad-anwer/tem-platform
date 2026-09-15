@@ -33,12 +33,6 @@ def _check_known_params(request: Request, allowed: set[str]) -> None:
         )
 
 
-def _parse_size(size: int) -> int:
-    if size < 1 or size > 100:
-        raise BadRequestError(detail="size must be between 1 and 100.")
-    return size
-
-
 def _links(request: Request, next_cursor: str | None) -> CollectionLinks:
     next_link = None
     if next_cursor:
@@ -74,7 +68,6 @@ async def list_targets(
     service: PipelineService = Depends(get_pipeline_service),
 ) -> TargetCollectionDocument:
     _check_known_params(request, _TARGETS_PARAMS)
-    size = _parse_size(size)
     items, next_cursor = await service.list_targets(size=size, cursor=cursor)
     return TargetCollectionDocument(
         data=[TargetResource.from_model(item) for item in items],
@@ -118,14 +111,13 @@ async def get_scan_run(
 )
 async def list_findings(
     request: Request,
-    size: int = Query(default=20),
+    size: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
     target_id: UUID | None = Query(default=None),
     scan_run_id: UUID | None = Query(default=None),
     service: PipelineService = Depends(get_pipeline_service),
 ) -> FindingCollectionDocument:
     _check_known_params(request, _FINDINGS_PARAMS)
-    size = _parse_size(size)
     items, next_cursor = await service.list_findings(
         size=size, cursor=cursor, target_id=target_id, scan_run_id=scan_run_id
     )

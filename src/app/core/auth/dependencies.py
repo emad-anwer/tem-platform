@@ -39,7 +39,7 @@ def _unauthorized(detail: str) -> HTTPException:
 
 
 # For testing
-_BOOTSTRAP_TENANT_ID = uuid.UUID("db44709a-30ba-4115-bd2c-83d0cfd8201a")
+_BOOTSTRAP_TENANT_ID = uuid.UUID(int=0)
 
 
 async def get_principal(

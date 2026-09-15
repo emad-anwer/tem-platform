@@ -15,7 +15,7 @@ from app.core.errors import (
 )
 from app.core.errors import ValidationError as AppValidationError
 from app.core.jobs.states import ScanRunStatus
-from app.core.pipeline.service import SCAN_JOB_NAME, PipelineService
+from app.core.pipeline.service import PipelineService
 from app.core.pipeline.validation import TargetKind
 from app.core.repository import FindingRepository
 
@@ -300,7 +300,7 @@ async def test_start_scan_success_enqueues_job_with_tenant_id(
 
     mock_pool.enqueue_job.assert_called_once()
     call_args = mock_pool.enqueue_job.call_args
-    assert call_args[0][0] == SCAN_JOB_NAME
+    assert call_args[0][0] == "run_scan"
 
     # Verify ScanJobPayload payload contains required tenant_id
     payload = call_args[0][1]

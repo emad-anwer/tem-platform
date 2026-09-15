@@ -20,22 +20,10 @@ from app.core.models import Finding, ScanRun, Target
 from app.core.pipeline.validation import TargetKind, normalize_target
 from app.core.redis import get_arq_pool
 from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
+from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 
 logger = structlog.get_logger(__name__)
 DEFAULT_SCAN_MAX_ATTEMPTS = 3
-
-
-try:
-    from app.core.jobs.scan import SCAN_JOB_NAME, ScanJobPayload  # type: ignore[import]
-except ImportError:
-    from pydantic import BaseModel as _BaseModel
-
-    SCAN_JOB_NAME = "run_scan"
-
-    class ScanJobPayload(_BaseModel):  # type: ignore[no-redef]
-        tenant_id: UUID
-        target_id: UUID
-        scan_run_id: UUID
 
 
 async def get_pipeline_service(
@@ -118,16 +106,15 @@ class PipelineService:
             max_attempts=DEFAULT_SCAN_MAX_ATTEMPTS,
         )
 
-        payload = ScanJobPayload(
+        payload = SubdomainDiscoveryPayload(
             tenant_id=self._principal.tenant_id,
-            target_id=target.id,
-            scan_run_id=scan_run.id,
+            run_id=scan_run.id,
         )
 
         try:
             pool = await get_arq_pool()
             job = await pool.enqueue_job(
-                SCAN_JOB_NAME, payload, _job_id=str(scan_run.id)
+                subdomain_discovery_job.__name__, payload, _job_id=str(scan_run.id)
             )
         except Exception as exc:
             logger.warning(
