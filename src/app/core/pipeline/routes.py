@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
+from app.core.auth.permissions import Permission, require_permission
 from app.core.errors import COMMON_ERROR_RESPONSES, BadRequestError
 from app.core.pipeline.schemas import (
     CollectionLinks,
@@ -16,7 +17,6 @@ from app.core.pipeline.schemas import (
     TargetDocument,
     TargetResource,
 )
-from app.core.auth.permissions import Permission, require_permission
 from app.core.pipeline.service import PipelineService, get_pipeline_service
 
 router = APIRouter(tags=["pipeline"], responses=COMMON_ERROR_RESPONSES)

@@ -6,12 +6,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import get_principal
-from app.core.auth.principal import Principal, Role
+from app.core.auth.principal import Principal
 from app.core.db import get_db
 from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 from app.core.errors import (
     ConflictError,
-    ForbiddenError,
     NotFoundError,
     ServiceUnavailableError,
     ValidationError,

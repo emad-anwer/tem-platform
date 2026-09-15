@@ -1,15 +1,18 @@
+import dataclasses
 import hashlib
 import uuid
 from datetime import UTC, datetime
+from typing import get_type_hints
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.core.auth.context import clear_current_principal, set_current_principal
+from app.core.auth.job_context import JOB_REGISTRY
 from app.core.auth.principal import Principal, Role
+from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 from app.core.errors import (
     ConflictError,
-    ForbiddenError,
     NotFoundError,
     ServiceUnavailableError,
 )
@@ -101,7 +104,6 @@ async def test_create_target_persists_normalized_value(db_session, two_tenants):
     assert target.value == "Admin.Example.COM."
     assert target.value_normalized == "admin.example.com"
     assert target.is_active is True
-
 
 
 async def test_create_target_invalid_domain_raises_app_validation_error(
@@ -199,7 +201,6 @@ async def test_get_target_or_404_cross_tenant_is_not_found(db_session, two_tenan
 # ----------------Scan Runs Tests----------------
 
 
-
 async def test_start_scan_target_not_found_raises_not_found_error(
     db_session, two_tenants
 ):
@@ -282,13 +283,25 @@ async def test_start_scan_success_enqueues_job_with_tenant_id(
 
     mock_pool.enqueue_job.assert_called_once()
     call_args = mock_pool.enqueue_job.call_args
-    assert call_args[0][0] == "subdomain_discovery_job"
-
-    # Verify SubdomainDiscoveryPayload payload contains required tenant_id
     payload = call_args[0][1]
+    assert isinstance(payload, SubdomainDiscoveryPayload)
     assert payload.tenant_id == tenant_a.id
     assert payload.run_id == scan_run.id
     assert call_args[1]["_job_id"] == str(scan_run.id)
+
+
+def test_start_scan_enqueue_is_registry_compatible():
+    """start_scan must enqueue a registered worker job with a matching payload type."""
+    job_name = subdomain_discovery_job.__name__
+    assert job_name in JOB_REGISTRY
+
+    worker_payload_type = get_type_hints(subdomain_discovery_job)["payload"]
+    assert worker_payload_type is SubdomainDiscoveryPayload
+
+    payload_field_names = {
+        field.name for field in dataclasses.fields(SubdomainDiscoveryPayload)
+    }
+    assert payload_field_names == {"tenant_id", "run_id"}
 
 
 async def test_start_scan_job_none_does_not_set_arq_job_id(

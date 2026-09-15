@@ -25,7 +25,9 @@ PERMISSION_MATRIX: dict[Permission, frozenset[Role]] = {
     Permission.TENANT_READ: frozenset(
         {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST, Role.VIEWER}
     ),
-    Permission.TARGET_CREATE: frozenset({Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST}),
+    Permission.TARGET_CREATE: frozenset(
+        {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST}
+    ),
     Permission.SCAN_START: frozenset({Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST}),
 }
 
