@@ -41,15 +41,8 @@ class PipelineService:
         self._scan_runs = ScanRunRepository(session, tenant_id=principal.tenant_id)
         self._findings = FindingRepository(session, tenant_id=principal.tenant_id)
 
-    def _require_writer(self) -> None:
-        if self._principal.role == Role.VIEWER:
-            raise ForbiddenError(
-                detail="Viewers do not have write access to this resource."
-            )
-
     # ----------------Targets---------------
     async def create_target(self, *, kind: TargetKind, value: str) -> Target:
-        self._require_writer()
 
         try:
             value_normalized = normalize_target(kind, value)
@@ -92,7 +85,6 @@ class PipelineService:
 
     # ------------------Scan Runs---------------
     async def start_scan(self, *, target_id: UUID) -> ScanRun:
-        self._require_writer()
         target = await self.get_target_or_404(target_id)
         if not target.is_active:
             raise ValidationError(

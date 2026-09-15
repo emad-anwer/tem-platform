@@ -16,6 +16,7 @@ from app.core.pipeline.schemas import (
     TargetDocument,
     TargetResource,
 )
+from app.core.auth.permissions import Permission, require_permission
 from app.core.pipeline.service import PipelineService, get_pipeline_service
 
 router = APIRouter(tags=["pipeline"], responses=COMMON_ERROR_RESPONSES)
@@ -45,6 +46,7 @@ def _links(request: Request, next_cursor: str | None) -> CollectionLinks:
     status_code=status.HTTP_201_CREATED,
     response_model=TargetDocument,
     summary="Create a target",
+    dependencies=[Depends(require_permission(Permission.TARGET_CREATE))],
 )
 async def create_target(
     body: TargetCreateRequest,
@@ -80,6 +82,7 @@ async def list_targets(
     status_code=status.HTTP_202_ACCEPTED,
     response_model=ScanRunDocument,
     summary="Start a scan against a target",
+    dependencies=[Depends(require_permission(Permission.SCAN_START))],
 )
 async def start_scan(
     target_id: UUID,

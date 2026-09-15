@@ -103,15 +103,6 @@ async def test_create_target_persists_normalized_value(db_session, two_tenants):
     assert target.is_active is True
 
 
-async def test_create_target_viewer_is_forbidden(db_session, two_tenants):
-    tenant_a, _ = two_tenants
-    principal = _viewer(tenant_a.id)
-    set_current_principal(principal)
-
-    service = PipelineService(db_session, principal)
-    with pytest.raises(ForbiddenError):
-        await service.create_target(kind=TargetKind.DOMAIN, value="example.com")
-
 
 async def test_create_target_invalid_domain_raises_app_validation_error(
     db_session, two_tenants
@@ -207,15 +198,6 @@ async def test_get_target_or_404_cross_tenant_is_not_found(db_session, two_tenan
 
 # ----------------Scan Runs Tests----------------
 
-
-async def test_start_scan_viewer_is_forbidden(db_session, two_tenants):
-    tenant_a, _ = two_tenants
-    principal = _viewer(tenant_a.id)
-    set_current_principal(principal)
-
-    service = PipelineService(db_session, principal)
-    with pytest.raises(ForbiddenError):
-        await service.start_scan(target_id=uuid.uuid4())
 
 
 async def test_start_scan_target_not_found_raises_not_found_error(
