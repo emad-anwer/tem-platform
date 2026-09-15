@@ -329,6 +329,37 @@ async def test_start_scan_job_none_does_not_set_arq_job_id(
     assert scan_run.arq_job_id is None
 
 
+async def test_start_scan_update_failure_raises_service_unavailable_error(
+    db_session, two_tenants, monkeypatch
+):
+    tenant_a, _ = two_tenants
+    principal = _owner(tenant_a.id)
+    set_current_principal(principal)
+
+    service = PipelineService(db_session, principal)
+    target = await service.create_target(
+        kind=TargetKind.DOMAIN, value="scan-update-failed.example.com"
+    )
+
+    mock_job = MagicMock()
+    mock_job.job_id = "job-abc-123"
+
+    mock_pool = AsyncMock()
+    mock_pool.enqueue_job.return_value = mock_job
+    _patch_arq_pool(monkeypatch, mock_pool)
+
+    async def mock_update(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(service._scan_runs, "update", mock_update)
+
+    with pytest.raises(ServiceUnavailableError):
+        await service.start_scan(target_id=target.id)
+
+    runs, _ = await service._scan_runs.list_by_target(target.id)
+    assert len(runs) == 0
+
+
 async def test_start_scan_enqueue_failure_raises_service_unavailable_error(
     db_session, two_tenants, monkeypatch
 ):

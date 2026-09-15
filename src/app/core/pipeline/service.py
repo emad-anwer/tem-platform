@@ -126,8 +126,18 @@ class PipelineService:
                 target_id=str(target.id),
                 job_id=job.job_id,
             )
-            scan_run = await self._scan_runs.update(scan_run.id, arq_job_id=job.job_id)
-            scan_run.arq_job_id = job.job_id
+            updated = await self._scan_runs.update(scan_run.id, arq_job_id=job.job_id)
+            if updated is None:
+                logger.warning(
+                    "pipeline.scan_run_update_failed",
+                    scan_run_id=str(scan_run.id),
+                    target_id=str(target.id),
+                )
+                await self._scan_runs.delete(scan_run.id)
+                raise ServiceUnavailableError(
+                    detail="Scan could not be scheduled right now. Please try again."
+                )
+            scan_run = updated
 
         return scan_run
 

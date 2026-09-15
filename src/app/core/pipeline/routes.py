@@ -59,6 +59,19 @@ async def create_target(
 
 
 @router.get(
+    "/api/v1/targets/{target_id}",
+    response_model=TargetDocument,
+    summary="Get a target",
+)
+async def get_target(
+    target_id: UUID,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> TargetDocument:
+    target = await service.get_target_or_404(target_id)
+    return TargetDocument(data=TargetResource.from_model(target))
+
+
+@router.get(
     "/api/v1/targets",
     response_model=TargetCollectionDocument,
     summary="List targets",

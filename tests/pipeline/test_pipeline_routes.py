@@ -196,6 +196,75 @@ class TestListTargets:
         assert resp.status_code == 400
 
 
+class TestGetTarget:
+    async def test_create_location_is_readable(
+        self, auth_client, two_tenants, auth_headers
+    ):
+        tenant_a, _ = two_tenants
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        target = await _create_target(
+            auth_client, headers, value="get-by-id.example.com"
+        )
+
+        resp = await auth_client.get(f"/api/v1/targets/{target['id']}", headers=headers)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["data"]["id"] == target["id"]
+        assert body["data"]["attributes"]["value_normalized"] == "get-by-id.example.com"
+
+    async def test_not_found_returns_404(self, auth_client, two_tenants, auth_headers):
+        tenant_a, _ = two_tenants
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+
+        resp = await auth_client.get(f"/api/v1/targets/{uuid.uuid4()}", headers=headers)
+
+        assert resp.status_code == 404
+
+    async def test_cross_tenant_target_returns_404(
+        self, auth_client, two_tenants, auth_headers
+    ):
+        tenant_a, tenant_b = two_tenants
+        headers_a = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        headers_b = auth_headers(
+            tenant_zitadel_org_id=tenant_b.zitadel_org_id, role="owner"
+        )
+        target = await _create_target(
+            auth_client, headers_a, value="target-isolated.example.com"
+        )
+
+        resp = await auth_client.get(
+            f"/api/v1/targets/{target['id']}", headers=headers_b
+        )
+
+        assert resp.status_code == 404
+        assert "target-isolated.example.com" not in resp.text
+
+    async def test_viewer_can_read_target(self, auth_client, two_tenants, auth_headers):
+        tenant_a, _ = two_tenants
+        owner_headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        target = await _create_target(
+            auth_client, owner_headers, value="viewer-read-target.example.com"
+        )
+
+        viewer_headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="viewer"
+        )
+        resp = await auth_client.get(
+            f"/api/v1/targets/{target['id']}", headers=viewer_headers
+        )
+
+        assert resp.status_code == 200
+
+
 class TestStartScan:
     async def test_enqueues_scan_and_returns_202_with_queued_status(
         self, auth_client, two_tenants, auth_headers, fake_arq_pool
