@@ -367,18 +367,17 @@ async def request_validation_error_handler(
 ) -> JSONResponse:
     req_id = _get_request_id(request)
     raw_errors = exc.errors()
-    
+
     is_query_error = len(raw_errors) > 0 and all(
-        len(err.get("loc", ())) > 0 and err["loc"][0] == "query"
-        for err in raw_errors
+        len(err.get("loc", ())) > 0 and err["loc"][0] == "query" for err in raw_errors
     )
-    
+
     status_code = (
         status.HTTP_400_BAD_REQUEST
         if is_query_error
         else status.HTTP_422_UNPROCESSABLE_CONTENT
     )
-    
+
     title = "Bad Request" if is_query_error else "Validation Error"
     slug = "bad-request" if is_query_error else "validation-error"
 

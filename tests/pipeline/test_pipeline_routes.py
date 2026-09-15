@@ -92,7 +92,9 @@ class TestCreateTarget:
 
         assert resp.status_code == 422
 
-    async def test_invalid_body_returns_422(self, auth_client, two_tenants, auth_headers):
+    async def test_invalid_body_returns_422(
+        self, auth_client, two_tenants, auth_headers
+    ):
         tenant_a, _ = two_tenants
         headers = auth_headers(
             tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
@@ -330,9 +332,7 @@ class TestStartScan:
     ):
         from app.core.discovery import SubdomainDiscoveryPayload
 
-        payload = SubdomainDiscoveryPayload(
-            tenant_id=uuid.uuid4(), run_id=uuid.uuid4()
-        )
+        payload = SubdomainDiscoveryPayload(tenant_id=uuid.uuid4(), run_id=uuid.uuid4())
         assert payload.run_id is not None
 
     async def test_start_scan_http_path_does_not_500_on_payload_construction(
@@ -456,7 +456,7 @@ class TestListFindings:
         resp = await auth_client.get("/api/v1/findings?size=0", headers=headers)
         assert resp.status_code == 400
         assert resp.headers["content-type"].startswith("application/problem+json")
-        
+
         resp = await auth_client.get("/api/v1/findings?size=101", headers=headers)
         assert resp.status_code == 400
 

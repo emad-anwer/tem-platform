@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.dependencies import get_principal
 from app.core.auth.principal import Principal, Role
 from app.core.db import get_db
+from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 from app.core.errors import (
     ConflictError,
     ForbiddenError,
@@ -20,7 +21,6 @@ from app.core.models import Finding, ScanRun, Target
 from app.core.pipeline.validation import TargetKind, normalize_target
 from app.core.redis import get_arq_pool
 from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
-from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 
 logger = structlog.get_logger(__name__)
 DEFAULT_SCAN_MAX_ATTEMPTS = 3
