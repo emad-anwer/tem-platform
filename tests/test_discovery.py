@@ -1,13 +1,19 @@
+import asyncio
+
 import dns.resolver
 import httpx
 import pytest
 
+from app.core.auth.context import set_current_principal
+from app.core.auth.principal import Principal, Role
 from app.core.discovery import (
     CertificateTransparencySource,
     DNSSource,
     SourceResult,
     _normalise_hostname,
+    discover_domain,
 )
+from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
 
 
 @pytest.fixture
@@ -47,6 +53,108 @@ class FailingResolver:
     async def resolve(self, hostname: str, record_type: str, *, lifetime: float):
         self.calls.append((hostname, record_type))
         raise self.exception
+
+
+class StaticSource:
+    name = "static"
+
+    def __init__(self, items: set[str] | None = None) -> None:
+        self.items = items
+
+    async def collect(self, domain: str) -> SourceResult:
+        return SourceResult(
+            self.items if self.items is not None else {f"admin.{domain}"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_discovery_upsert_is_idempotent_and_tenant_scoped(
+    db_session, two_tenants
+) -> None:
+    tenant_a, tenant_b = two_tenants
+    target_ids = []
+
+    for tenant, user_id in ((tenant_a, "user-a"), (tenant_b, "user-b")):
+        set_current_principal(
+            Principal(user_id=user_id, tenant_id=tenant.id, role=Role.OWNER)
+        )
+        target = await TargetRepository(db_session).create(
+            kind="domain", value="example.com", value_normalized="example.com"
+        )
+        target_ids.append(target.id)
+
+    set_current_principal(
+        Principal(user_id="user-a", tenant_id=tenant_a.id, role=Role.OWNER)
+    )
+    run_results = []
+    for _ in range(3):
+        run = await ScanRunRepository(db_session).create(
+            target_id=target_ids[0], max_attempts=3
+        )
+        await discover_domain({"db": db_session}, run, sources=(StaticSource(),))
+        run_results.append(run)
+        await asyncio.sleep(0.001)
+
+    assert [run.new_findings_count for run in run_results] == [2, 0, 0]
+    assert [run.findings_count for run in run_results] == [2, 2, 2]
+
+    findings_a, _ = await FindingRepository(db_session).list()
+    assert len(findings_a) == 2
+    assert {finding.value for finding in findings_a} == {
+        "example.com",
+        "admin.example.com",
+    }
+    for finding in findings_a:
+        assert finding.times_seen == 3
+        assert finding.first_seen_at < finding.last_seen_at
+        assert finding.status == "active"
+
+    set_current_principal(
+        Principal(user_id="user-b", tenant_id=tenant_b.id, role=Role.OWNER)
+    )
+    run_b = await ScanRunRepository(db_session).create(
+        target_id=target_ids[1], max_attempts=3
+    )
+    await discover_domain({"db": db_session}, run_b, sources=(StaticSource(),))
+
+    findings_b, _ = await FindingRepository(db_session).list()
+    assert len(findings_b) == 2
+    assert {finding.fingerprint for finding in findings_a}.isdisjoint(
+        {finding.fingerprint for finding in findings_b}
+    )
+
+
+@pytest.mark.asyncio
+async def test_discovery_keeps_missing_findings_as_resolved(
+    db_session, two_tenants
+) -> None:
+    tenant, _ = two_tenants
+    set_current_principal(
+        Principal(user_id="user-a", tenant_id=tenant.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="example.com", value_normalized="example.com"
+    )
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    await discover_domain({"db": db_session}, run, sources=(StaticSource(),))
+
+    second_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    await discover_domain(
+        {"db": db_session},
+        second_run,
+        sources=(StaticSource(set()),),
+    )
+
+    findings, _ = await FindingRepository(db_session).list()
+    assert len(findings) == 2
+    assert {finding.value: finding.status for finding in findings} == {
+        "example.com": "active",
+        "admin.example.com": "resolved",
+    }
 
 
 @pytest.mark.asyncio

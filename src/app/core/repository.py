@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import literal_column, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -605,7 +605,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
         run_id: UUID,
         value: str,
         fingerprint: str,
-    ) -> Finding:
+    ) -> tuple[Finding, bool]:
         now = datetime.now(UTC)
         statement = insert(Finding).values(
             tenant_id=self.tenant_id,
@@ -629,11 +629,33 @@ class FindingRepository(TenantScopedRepository[Finding]):
                 "status": "active",
                 "updated_at": now,
             },
-        ).returning(Finding)
+        ).returning(Finding, literal_column("xmax = 0").label("inserted"))
+        # PostgreSQL: freshly inserted tuples have xmax = 0;
+        # conflict-updated tuples have a non-zero xmax.
+
         result = await self._session.execute(statement)
-        finding = result.scalar_one()
+        finding, inserted = result.one()
         await self._session.commit()
-        return finding
+        return finding, inserted
+
+    async def resolve_missing_discoveries(
+        self,
+        *,
+        target_id: UUID,
+        seen_fingerprints: set[str],
+    ) -> int:
+        """Mark active discoveries absent from the latest scan as resolved."""
+        statement = update(Finding).where(
+            Finding.tenant_id == self.tenant_id,
+            Finding.target_id == target_id,
+            Finding.status == "active",
+        )
+        if seen_fingerprints:
+            statement = statement.where(Finding.fingerprint.not_in(seen_fingerprints))
+        statement = statement.values(status="resolved", updated_at=datetime.now(UTC))
+        result = await self._session.execute(statement)
+        await self._session.commit()
+        return result.rowcount
 
     async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
         self,
