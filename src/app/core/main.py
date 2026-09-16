@@ -10,6 +10,7 @@ from app.core.errors import register_error_handlers
 from app.core.health import router as health_router
 from app.core.logging import setup_logging
 from app.core.middlewares.request_id import RequestIDMiddleware
+from app.core.pipeline.routes import router as pipeline_router
 from app.core.redis import dispose_redis, wait_for_redis
 from app.core.routes import router as tenant_router
 from app.core.zitadel.client import (
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(tenant_router)
+    app.include_router(pipeline_router)
     return app
 
 

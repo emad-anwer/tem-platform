@@ -2,6 +2,9 @@ import asyncio
 import logging
 import time
 
+from arq import ArqRedis
+from arq.connections import RedisSettings as ArqRedisSettings
+from arq.connections import create_pool
 from redis.asyncio import Connection, ConnectionPool, Redis, SSLConnection
 from redis.exceptions import RedisError
 
@@ -36,6 +39,22 @@ def _mask_url(url: object) -> str:
     return f"{scheme}://{netloc}{path}"
 
 
+def build_arq_redis_settings(settings: Settings) -> ArqRedisSettings:
+    """Return a dict suitable for passing to ``arq.create_pool()``."""
+    url = settings.redis_url
+    path = (url.path or "").lstrip("/")
+    if url.host is None or url.port is None:
+        raise ValueError("REDIS_URL must include a host and port")
+    return ArqRedisSettings(
+        host=url.host,
+        port=url.port,
+        password=url.password,
+        database=int(path) if path else 0,
+        conn_timeout=int(settings.redis_socket_connect_timeout),
+        conn_retries=settings.redis_max_retries,
+    )
+
+
 class RedisManager:
     """Manages a shared async Redis connection pool and client.
 
@@ -50,6 +69,9 @@ class RedisManager:
         self._pool_failed = False
         self._lock = asyncio.Lock()
         self._last_check: tuple[float, bool] | None = None
+
+        self._arq_pool: ArqRedis | None = None
+        self._arq_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Lazy initialisation (lock-protected)
@@ -105,6 +127,17 @@ class RedisManager:
                     return None
             self._client = Redis(connection_pool=self._pool)
             return self._client
+
+    async def get_arq_pool(self) -> ArqRedis:
+        """Return a cached arq pool for enqueuing jobs from the API"""
+        if self._arq_pool is not None:
+            return self._arq_pool
+        async with self._arq_lock:
+            if self._arq_pool is not None:
+                return self._arq_pool
+            settings = build_arq_redis_settings(self._settings)
+            self._arq_pool = await create_pool(settings)
+            return self._arq_pool
 
     # ------------------------------------------------------------------
     # Startup
@@ -208,6 +241,13 @@ class RedisManager:
                 logger.debug("Error closing Redis client", exc_info=True)
             self._client = None
 
+        if self._arq_pool is not None:
+            try:
+                await self._arq_pool.close()
+            except Exception:
+                logger.debug("Error closing arq Redis pool", exc_info=True)
+            self._arq_pool = None
+
         if self._pool is not None:
             try:
                 await self._pool.aclose()
@@ -231,6 +271,7 @@ class RedisManager:
         self._client = None
         self._last_check = None
         self._pool_failed = False
+        self._arq_pool = None
 
 
 # ======================================================================
@@ -282,3 +323,8 @@ async def check_redis_connection() -> bool:
 
 async def dispose_redis() -> None:
     await (await _get_manager()).dispose_redis()
+
+
+async def get_arq_pool() -> ArqRedis:
+    manager = await _get_manager()
+    return await manager.get_arq_pool()

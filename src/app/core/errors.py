@@ -366,13 +366,28 @@ async def request_validation_error_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     req_id = _get_request_id(request)
-    formatted_errors = _format_validation_errors(exc.errors())
+    raw_errors = exc.errors()
+
+    is_query_error = len(raw_errors) > 0 and all(
+        len(err.get("loc", ())) > 0 and err["loc"][0] == "query" for err in raw_errors
+    )
+
+    status_code = (
+        status.HTTP_400_BAD_REQUEST
+        if is_query_error
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
+    )
+
+    title = "Bad Request" if is_query_error else "Validation Error"
+    slug = "bad-request" if is_query_error else "validation-error"
+
+    formatted_errors = _format_validation_errors(raw_errors)
     return create_problem_response(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        title="Validation Error",
+        status_code=status_code,
+        title=title,
         detail="One or more fields failed validation.",
         instance=request.url.path,
-        slug="validation-error",
+        slug=slug,
         request_id=req_id,
         errors=formatted_errors,
     )

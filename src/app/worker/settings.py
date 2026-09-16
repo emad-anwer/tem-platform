@@ -8,29 +8,18 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core import discovery  # noqa: F401, register discovery jobs
 from app.core.auth.job_context import JOB_REGISTRY
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.core.db import dispose_engine, wait_for_db
 from app.core.jobs import scan  # noqa: F401, register scan jobs
 from app.core.logging import setup_logging
-from app.core.redis import dispose_redis, get_redis, wait_for_redis
+from app.core.redis import (
+    build_arq_redis_settings,
+    dispose_redis,
+    get_redis,
+    wait_for_redis,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-def _arq_redis_settings(settings: Settings) -> RedisSettings:
-    """Build arq settings from the application Redis URL."""
-    url = settings.redis_url
-    path = (url.path or "").lstrip("/")
-    if url.host is None or url.port is None:
-        raise ValueError("REDIS_URL must include a host and port")
-    return RedisSettings(
-        host=url.host,
-        port=url.port,
-        password=url.password,
-        database=int(path) if path else 0,  # Redis database 0 is the URL default.
-        conn_timeout=int(settings.redis_socket_connect_timeout),
-        conn_retries=settings.redis_max_retries,
-    )
 
 
 async def startup(ctx: dict) -> None:
@@ -91,7 +80,7 @@ class WorkerSettings:
     # Redis
     # ------------------------------------------------------------------
 
-    redis_settings: RedisSettings = _arq_redis_settings(get_settings())
+    redis_settings: RedisSettings = build_arq_redis_settings(get_settings())
 
     # ------------------------------------------------------------------
     # Job registry

@@ -38,6 +38,7 @@ def _unauthorized(detail: str) -> HTTPException:
     )
 
 
+# For testing
 _BOOTSTRAP_TENANT_ID = uuid.UUID(int=0)
 
 

@@ -17,6 +17,12 @@ _ALLOWED_TRANSITIONS = {
 }
 
 
+class ErrorKind(StrEnum):
+    RETRYABLE = "retryable"
+    TERMINAL = "terminal"
+    STALE = "stale"
+
+
 def transition_status(current: str, target: ScanRunStatus) -> None:
     """Raise when a scan run state change is not allowed."""
     try:

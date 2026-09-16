@@ -15,6 +15,8 @@ from app.core.auth.principal import Principal, Role
 class Permission(StrEnum):
     TENANT_CREATE = "tenant:create"
     TENANT_READ = "tenant:read"
+    TARGET_CREATE = "target:create"
+    SCAN_START = "scan:start"
 
 
 # Zitadel grants roles; this application matrix decides what those roles may do.
@@ -23,6 +25,10 @@ PERMISSION_MATRIX: dict[Permission, frozenset[Role]] = {
     Permission.TENANT_READ: frozenset(
         {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST, Role.VIEWER}
     ),
+    Permission.TARGET_CREATE: frozenset(
+        {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST}
+    ),
+    Permission.SCAN_START: frozenset({Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST}),
 }
 
 
