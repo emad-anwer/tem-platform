@@ -20,11 +20,13 @@ MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH = 2000
 _INVALID_CURSOR = "Invalid cursor."
 _LIMIT_MUST_BE_POSITIVE = "limit must be greater than 0."
 
-# Maximum rows per INSERT statement in batch operations.
+# Maximum rows per INSERT statement / per flush in batch operations.
 # Named distinctly from DEFAULT_MAX_RESULTS (discovery.py) — same value, different concern:
 # DEFAULT_MAX_RESULTS caps scan results collected per source;
-# DEFAULT_INSERT_CHUNK_SIZE caps rows per INSERT statement to limit per-statement lock duration.
-# All chunks within a batch share a single transaction (one commit, all-or-nothing).
+# DEFAULT_INSERT_CHUNK_SIZE caps rows per INSERT statement / per flush to limit
+# per-statement work and ORM state accumulated before SQL is sent.
+# All chunks within a batch share a single transaction (one commit, all-or-nothing),
+# so row/table locks acquired by the transaction are still held until commit/rollback.
 DEFAULT_INSERT_CHUNK_SIZE = 500
 
 
@@ -215,8 +217,13 @@ class TenantScopedRepository(Generic[T]):
         - **tenant_id is force-stamped on every row**, regardless of what the caller
           supplied. There is no opt-out. This mirrors the invariant in ``create()`` and is
           the reason the base class exists.
-        - ``batch_size`` controls the number of rows staged per loop iteration, limiting
-          how large any single flush becomes. It is **not** a commit boundary.
+        - ``batch_size`` controls the number of rows flushed per loop iteration,
+          limiting per-flush/statement work and the amount of ORM state accumulated
+          before SQL is sent. It is **not** a commit boundary and does **not**
+          release database locks between chunks: locks acquired by the transaction
+          are held until the final commit or rollback. Releasing locks per chunk
+          would require committing per chunk, which would violate the
+          all-or-nothing requirement.
 
         Args:
             rows: Sequence of attribute dicts, one per row to insert.
@@ -240,7 +247,10 @@ class TenantScopedRepository(Generic[T]):
                     # Force-stamp tenant_id — caller-supplied value silently overridden.
                     stamped = {**row, "tenant_id": self.tenant_id}
                     self._session.add(self.model(**stamped))
-                # No commit here — all chunks share the same open transaction.
+                # Flush per chunk so batch_size bounds per-flush work/ORM state.
+                # No commit here — all chunks share the same open transaction, so
+                # locks are still held until the final commit/rollback.
+                await self._session.flush()
 
             await (
                 self._session.commit()
@@ -716,6 +726,8 @@ class FindingRepository(TenantScopedRepository[Finding]):
         execute inside one open transaction; exactly one ``commit()`` at the end makes
         them all visible atomically.  A failure in any chunk rolls back everything →
         zero rows persisted → safe retry (issue #76: "one commit — or none of them").
+        ``batch_size`` caps per-statement work only; it does not release locks
+        between chunks — locks are held until the final commit or rollback.
 
         **SET clause follows ADR-0003 §6 exactly:**
 

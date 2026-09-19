@@ -61,6 +61,9 @@ class DummyAsyncSessionWrapper:
     async def commit(self):
         self._session.commit()
 
+    async def flush(self):
+        self._session.flush()
+
     async def refresh(self, instance):
         self._session.refresh(instance)
 
@@ -269,19 +272,25 @@ async def test_cursor_pagination_forward_navigation(fake_async_session):
 
 
 class CommitCountingSession(DummyAsyncSessionWrapper):
-    """Wraps DummyAsyncSessionWrapper to count commit() calls.
+    """Wraps DummyAsyncSessionWrapper to count commit()/flush() calls.
 
     Used to assert the single-transaction guarantee: create_batch() must
-    call commit() exactly once regardless of how many chunks it processes.
+    call commit() exactly once regardless of how many chunks it processes,
+    while flushing once per chunk so batch_size bounds per-flush work.
     """
 
     def __init__(self, sync_session: Session) -> None:
         super().__init__(sync_session)
         self.commit_count = 0
+        self.flush_count = 0
 
     async def commit(self) -> None:
         self.commit_count += 1
         await super().commit()
+
+    async def flush(self) -> None:
+        self.flush_count += 1
+        await super().flush()
 
 
 @pytest.mark.asyncio
@@ -305,6 +314,32 @@ async def test_create_batch_commits_once_for_all_rows(sync_db_session):
     )
     items, _ = await repo.list(limit=20)
     assert len(items) == 10
+
+
+@pytest.mark.asyncio
+async def test_create_batch_flushes_once_per_chunk(sync_db_session):
+    """batch_size must bound per-flush work: one flush() per chunk, one commit total.
+
+    Review follow-up: without a per-chunk flush, all rows stay pending until the
+    final commit, so batch_size would not limit ORM state / per-flush work.
+    Flushes do not release DB locks — locks are held until commit/rollback.
+    With batch_size=3 and 10 rows there are 4 chunks → 4 flushes, 1 commit.
+    """
+    tenant_id = uuid4()
+    set_current_principal(Principal(user_id="u", tenant_id=tenant_id, role=Role.OWNER))
+    session = CommitCountingSession(sync_db_session)
+    repo = DummyTenantRepository(session)
+
+    rows = [{"name": f"item-{i:02d}"} for i in range(10)]
+    count = await repo.create_batch(rows, batch_size=3)  # 4 chunks
+
+    assert count == 10
+    assert session.flush_count == 4, (
+        f"Expected 1 flush per chunk (4 flushes), got {session.flush_count}"
+    )
+    assert session.commit_count == 1, (
+        f"Expected 1 commit for the whole batch, got {session.commit_count}"
+    )
 
 
 @pytest.mark.asyncio
