@@ -20,6 +20,15 @@ MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH = 2000
 _INVALID_CURSOR = "Invalid cursor."
 _LIMIT_MUST_BE_POSITIVE = "limit must be greater than 0."
 
+# Maximum rows per INSERT statement / per flush in batch operations.
+# Named distinctly from DEFAULT_MAX_RESULTS (discovery.py) — same value, different concern:
+# DEFAULT_MAX_RESULTS caps scan results collected per source;
+# DEFAULT_INSERT_CHUNK_SIZE caps rows per INSERT statement / per flush to limit
+# per-statement work and ORM state accumulated before SQL is sent.
+# All chunks within a batch share a single transaction (one commit, all-or-nothing),
+# so row/table locks acquired by the transaction are still held until commit/rollback.
+DEFAULT_INSERT_CHUNK_SIZE = 500
+
 
 class MissingTenantContextError(RuntimeError):
     """Raised when an operation requires a tenant context but none is present."""
@@ -191,6 +200,65 @@ class TenantScopedRepository(Generic[T]):
         await self._session.commit()
         await self._session.refresh(instance)
         return instance
+
+    async def create_batch(
+        self,
+        rows: Sequence[dict[str, Any]],
+        *,
+        batch_size: int = DEFAULT_INSERT_CHUNK_SIZE,
+    ) -> int:
+        """Insert multiple rows in one transaction, chunking the INSERT statements.
+
+        Contract:
+        - **Single transaction, single commit.** All INSERT statements share one open
+          transaction; exactly one ``commit()`` at the end makes them all visible atomically.
+          If any statement fails the whole transaction rolls back → zero rows persisted →
+          safe retry for the caller (issue #76 requirement: "one commit — or none of them").
+        - **tenant_id is force-stamped on every row**, regardless of what the caller
+          supplied. There is no opt-out. This mirrors the invariant in ``create()`` and is
+          the reason the base class exists.
+        - ``batch_size`` controls the number of rows flushed per loop iteration,
+          limiting per-flush/statement work and the amount of ORM state accumulated
+          before SQL is sent. It is **not** a commit boundary and does **not**
+          release database locks between chunks: locks acquired by the transaction
+          are held until the final commit or rollback. Releasing locks per chunk
+          would require committing per chunk, which would violate the
+          all-or-nothing requirement.
+
+        Args:
+            rows: Sequence of attribute dicts, one per row to insert.
+            batch_size: Max rows staged per iteration (default ``DEFAULT_INSERT_CHUNK_SIZE``).
+
+        Returns:
+            Total number of rows inserted.
+
+        Raises:
+            ValueError: If ``batch_size`` is not positive.
+        """
+        if not rows:
+            return 0
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than 0.")
+
+        try:
+            for chunk_start in range(0, len(rows), batch_size):
+                chunk = rows[chunk_start : chunk_start + batch_size]
+                for row in chunk:
+                    # Force-stamp tenant_id — caller-supplied value silently overridden.
+                    stamped = {**row, "tenant_id": self.tenant_id}
+                    self._session.add(self.model(**stamped))
+                # Flush per chunk so batch_size bounds per-flush work/ORM state.
+                # No commit here — all chunks share the same open transaction, so
+                # locks are still held until the final commit/rollback.
+                await self._session.flush()
+
+            await (
+                self._session.commit()
+            )  # One commit for the entire batch (all-or-nothing).
+        except Exception:
+            await self._session.rollback()
+            raise
+        return len(rows)
 
     async def update(self, entity_id: UUID | str, **attributes: Any) -> T | None:
         """Update an entity after verifying ownership."""
@@ -637,6 +705,117 @@ class FindingRepository(TenantScopedRepository[Finding]):
         finding, inserted = result.one()
         await self._session.commit()
         return finding, inserted
+
+    async def upsert_discovery_batch(
+        self,
+        items: Sequence[dict[str, Any]],
+        *,
+        batch_size: int = DEFAULT_INSERT_CHUNK_SIZE,
+    ) -> tuple[int, int]:
+        """Upsert multiple findings in one transaction, chunking the INSERT statements.
+
+        Each item must provide: ``target_id``, ``run_id``, ``value``, ``fingerprint``.
+        Optional per-item keys: ``severity`` (default ``"info"``), ``raw_severity``
+        (default ``None``), ``details`` (default ``{}``).
+
+        **tenant_id is force-stamped on every row** from ``self.tenant_id``.  Any
+        ``tenant_id`` key present in an item dict is silently overridden — there is no
+        opt-out.  This is the same invariant as ``create()`` and ``upsert_discovery()``.
+
+        **Single transaction, single commit.**  All INSERT … ON CONFLICT statements
+        execute inside one open transaction; exactly one ``commit()`` at the end makes
+        them all visible atomically.  A failure in any chunk rolls back everything →
+        zero rows persisted → safe retry (issue #76: "one commit — or none of them").
+        ``batch_size`` caps per-statement work only; it does not release locks
+        between chunks — locks are held until the final commit or rollback.
+
+        **SET clause follows ADR-0003 §6 exactly:**
+
+        - ``severity`` / ``raw_severity``: updated from EXCLUDED (latest scan wins).
+        - ``details``: JSONB shallow merge (``findings.details || EXCLUDED.details``),
+          new top-level keys added, existing keys overwritten with freshest value.
+          No read-then-write race; safe under at-least-once delivery.
+        - ``first_seen_at``: deliberately **never** updated (ADR §6).
+
+        Args:
+            items: Sequence of dicts, one per finding to upsert.
+            batch_size: Max rows per INSERT statement (default ``DEFAULT_INSERT_CHUNK_SIZE``).
+
+        Returns:
+            ``(total_findings, new_findings)`` counts across all chunks.
+
+        Raises:
+            ValueError: If ``batch_size`` is not positive.
+        """
+        if not items:
+            return 0, 0
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than 0.")
+
+        now = datetime.now(UTC)
+        total = 0
+        new_count = 0
+
+        try:
+            for chunk_start in range(0, len(items), batch_size):
+                chunk = items[chunk_start : chunk_start + batch_size]
+                values = [
+                    {
+                        "tenant_id": self.tenant_id,  # Force-stamp; caller value overridden.
+                        "target_id": item["target_id"],
+                        "last_seen_run_id": item["run_id"],
+                        "kind": "subdomain",
+                        "value": item["value"],
+                        # Callers pass already-normalised hostnames (discovery.py
+                        # normalises via _normalise_hostname before batching).
+                        "value_normalized": item["value"],
+                        "fingerprint": item["fingerprint"],
+                        # ADR-0003 §5: platform normalises severity; module may suggest via raw_severity.
+                        "severity": item.get("severity", "info"),
+                        "raw_severity": item.get("raw_severity", None),
+                        "first_seen_at": now,
+                        "last_seen_at": now,
+                        "details": item.get("details", {}),
+                    }
+                    for item in chunk
+                ]
+                excluded = insert(Finding).excluded
+                stmt = (
+                    insert(Finding)
+                    .values(values)
+                    .on_conflict_do_update(
+                        constraint="uq_findings_tenant_fingerprint",
+                        set_={
+                            # ADR-0003 §6 SET clause — all required fields, in ADR order.
+                            "last_seen_at": now,
+                            "last_seen_run_id": excluded.last_seen_run_id,
+                            "times_seen": Finding.times_seen + 1,
+                            "status": "active",
+                            # Latest scan's severity/raw_severity wins (ADR §6).
+                            "severity": excluded.severity,
+                            "raw_severity": excluded.raw_severity,
+                            # JSONB shallow merge: new keys added, existing keys overwritten (ADR §6).
+                            "details": Finding.details.op("||")(excluded.details),
+                            "updated_at": now,
+                            # first_seen_at deliberately excluded per ADR §6.
+                        },
+                    )
+                    # PostgreSQL: xmax = 0 for freshly inserted tuples; non-zero for conflict-updated.
+                    .returning(literal_column("xmax = 0").label("inserted"))
+                )
+                result = await self._session.execute(stmt)
+                flags = result.scalars().all()
+                total += len(flags)
+                new_count += sum(1 for f in flags if f)
+                # No commit here — all chunks share the same open transaction.
+
+            await (
+                self._session.commit()
+            )  # One commit for the entire batch (all-or-nothing).
+        except Exception:
+            await self._session.rollback()
+            raise
+        return total, new_count
 
     async def resolve_missing_discoveries(
         self,

@@ -821,3 +821,106 @@ async def test_finding_domain_queries(db_session: AsyncSession, two_tenants):
     resolved, _ = await repo.list(status="resolved")
     assert len(resolved) == 1
     assert resolved[0].id == f2.id
+
+
+# ===========================================================================
+# FindingRepository.upsert_discovery_batch() tests
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_upsert_discovery_batch_commits_once(
+    db_session: AsyncSession, two_tenants
+):
+    """upsert_discovery_batch() must call commit() exactly once for all findings.
+
+    Before (#76): N commits for N findings (400 findings = 400 commits).
+    After  (#76): 1 commit for all findings regardless of batch chunking.
+
+    This test measures the "after" state by patching session.commit with a counter.
+    """
+    tenant_a, _ = two_tenants
+    set_current_principal(
+        Principal(user_id="u", tenant_id=tenant_a.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="example.com", value_normalized="example.com"
+    )
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+
+    # Patch commit to count calls.
+    commit_count = 0
+    original_commit = db_session.commit
+
+    async def counting_commit():
+        nonlocal commit_count
+        commit_count += 1
+        return await original_commit()
+
+    db_session.commit = counting_commit
+
+    items = [
+        {
+            "target_id": target.id,
+            "run_id": run.id,
+            "value": f"sub{i}.example.com",
+            "fingerprint": f"fp-batch-{i:04d}",
+        }
+        for i in range(400)
+    ]
+
+    total, new = await FindingRepository(db_session).upsert_discovery_batch(items)
+
+    assert total == 400
+    assert new == 400
+    assert commit_count == 1, (
+        f"Expected exactly 1 commit for 400 findings, got {commit_count}. "
+        f"Before #76 this would have been 400."
+    )
+
+
+@pytest.mark.asyncio
+async def test_upsert_discovery_batch_tenant_stamp_cannot_be_bypassed(
+    db_session: AsyncSession, two_tenants
+):
+    """tenant_id is force-stamped on every row — caller-supplied value is silently overridden.
+
+    Issue #76: "A batch path that skips that — because it's building rows in bulk and
+    stamping each one felt wasteful — is not a slow cross-tenant write, it's a silent one."
+    Write the test you didn't think of.
+    """
+    tenant_a, tenant_b = two_tenants
+    set_current_principal(
+        Principal(user_id="u", tenant_id=tenant_a.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="example.com", value_normalized="example.com"
+    )
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    repo = FindingRepository(db_session)
+
+    # All items carry tenant_b.id — must be silently overridden with tenant_a.id.
+    items = [
+        {
+            "target_id": target.id,
+            "run_id": run.id,
+            "value": f"sub{i}.example.com",
+            "fingerprint": f"fp-cross-{i}",
+            "tenant_id": tenant_b.id,  # caller attempts cross-tenant write
+        }
+        for i in range(5)
+    ]
+    await repo.upsert_discovery_batch(items)
+
+    findings, _ = await repo.list(limit=20)
+    assert len(findings) == 5
+    assert all(f.tenant_id == tenant_a.id for f in findings), (
+        "All findings must carry the repository's tenant_id (tenant_a)"
+    )
+    assert not any(f.tenant_id == tenant_b.id for f in findings), (
+        "No finding must carry the caller-supplied tenant_id (tenant_b)"
+    )
