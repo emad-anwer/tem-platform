@@ -466,6 +466,7 @@ just lint
 
 | Doc                                | What it is                                                        |
 | ---------------------------------- | ----------------------------------------------------------------- |
+| [pipeline.md](docs/pipeline.md)      | How the pipeline runs: request → worker → findings, adding a job, stuck scans, crt.sh outages |
 | [ROADMAP.md](docs/ROADMAP.md)      | The 8-week plan — what gets built when, and why in that order     |
 | [DECISIONS.md](docs/DECISIONS.md)  | Every architectural decision and the reasoning behind it          |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How we work: branches, PRs, review, definition of done            |

@@ -220,19 +220,17 @@ async def discover_domain(
 
     if persist_finding:
         repository = FindingRepository(ctx["db"])
-        fingerprints: set[str] = set()
-        new_findings_count = 0
-        for name in sorted(names):
-            fingerprint = _fingerprint(target.id, name)
-            fingerprints.add(fingerprint)
-            _, inserted = await repository.upsert_discovery(
-                target_id=target.id,
-                run_id=run.id,
-                value=name,
-                fingerprint=fingerprint,
-            )
-            if inserted:
-                new_findings_count += 1
+        items = [
+            {
+                "target_id": target.id,
+                "run_id": run.id,
+                "value": name,
+                "fingerprint": _fingerprint(target.id, name),
+            }
+            for name in sorted(names)
+        ]
+        fingerprints = {item["fingerprint"] for item in items}
+        _, new_findings_count = await repository.upsert_discovery_batch(items)
         await repository.resolve_missing_discoveries(
             target_id=target.id,
             seen_fingerprints=fingerprints,
