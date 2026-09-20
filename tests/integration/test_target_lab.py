@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-LAB_ROOT = Path(__file__).parent.parent
+LAB_ROOT = Path(__file__).parent.parent.parent
 COMPOSE_FILE = LAB_ROOT / "compose.yaml"
 JUSTFILE = LAB_ROOT / "justfile"
 TARGET_LAB_DOC = LAB_ROOT / "docs" / "target-lab.md"

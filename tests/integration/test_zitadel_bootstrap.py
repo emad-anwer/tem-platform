@@ -1,6 +1,6 @@
 """Minimal tests for Zitadel bootstrap idempotency.
 
-Run with: pytest tests/test_zitadel_bootstrap.py -v
+Run with: pytest tests/integration/test_zitadel_bootstrap.py -v
 
 Requires a running Zitadel instance (use `just zitadel-up` first).
 Tests auto-skip if Zitadel is unreachable.
@@ -26,7 +26,7 @@ os.environ.setdefault("ZITADEL_DEV_PASSWORD", "DevOnlyPassw0rd!")
 # Import the module under test. Adjust the path to match your project layout.
 import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from zitadel_bootstrap import (
     APPLICATION_NAME,

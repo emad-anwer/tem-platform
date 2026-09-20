@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.job_context import tenant_job
 from app.core.models import Tenant
-from tests.jobs.helpers import run_job
+from tests.core.jobs.helpers import run_job
 
 logger = structlog.get_logger(__name__)
 

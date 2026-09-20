@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import Tenant
 from app.core.repository import MissingTenantContextError
-from tests.jobs.helpers import JobContext, run_job
+from tests.core.jobs.helpers import JobContext, run_job
 
 
 async def _context_probe(ctx: JobContext, *, label: str = "probe") -> dict[str, Any]:

@@ -15,7 +15,7 @@ from app.core.auth.job_context import tenant_job
 from app.core.auth.principal import Principal, Role
 from app.core.models import Target, Tenant
 from app.core.repository import MissingTenantContextError, TargetRepository
-from tests.jobs.helpers import run_job
+from tests.core.jobs.helpers import run_job
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

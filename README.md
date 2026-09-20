@@ -238,8 +238,8 @@ even unit tests require `DATABASE_URL` to be set (it's referenced at import time
 
 ```bash
 just shell
-pytest tests/test_health.py                    # one file
-pytest tests/test_health.py::test_healthz_is_always_200   # one test
+pytest tests/core/test_health.py                    # one file
+pytest tests/core/test_health.py::test_healthz_is_always_200   # one test
 pytest -k "redis"                              # by keyword
 ```
 
@@ -247,10 +247,15 @@ pytest -k "redis"                              # by keyword
 
 | File | Type | What it covers |
 |---|---|---|
-| `tests/test_health.py` | Unit | Health endpoints with mocked DB/Redis |
-| `tests/test_redis.py` | Unit | RedisManager internals — pool construction, sticky failures, URL masking |
-| `tests/test_e2e.py` | E2E | Real lifespan, health checks, DB+Redis roundtrip against live services |
-| `tests/test_target_lab.py` | Mixed | Static config validation (unit) + live probes against lab services (e2e) |
+| `tests/core/test_health.py` | Unit | Health endpoints with mocked DB/Redis |
+| `tests/core/test_redis.py` | Unit | RedisManager internals — pool construction, sticky failures, URL masking |
+| `tests/integration/test_e2e.py` | E2E | Real lifespan, health checks, DB+Redis roundtrip against live services |
+| `tests/integration/test_target_lab.py` | Mixed | Static config validation (unit) + live probes against lab services (e2e) |
+
+> [!Note]
+> `tests/` mirrors `src/app`: core tests live under `tests/core/`, module tests under
+> `tests/modules/<name>/`, worker tests under `tests/worker/`, and live-service tests
+> under `tests/integration/`. New tests should follow the same mirrored path.
 
 ---
 
@@ -346,9 +351,10 @@ just migrate
 
 ### 9. Add tests
 
-Create test files under `tests/`:
-- `tests/test_<module>.py` for unit tests (mock DB/Redis)
-- Mark integration tests with `@pytest.mark.e2e` if they need live services
+Create test files mirroring the source tree under `tests/`:
+- `tests/modules/<module>/` for module unit tests (mock DB/Redis)
+- `tests/core/` for shared core tests
+- `tests/integration/` for tests needing live services — mark them with `@pytest.mark.e2e`
 
 ### The one rule
 
