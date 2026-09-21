@@ -468,6 +468,7 @@ just lint
 | ---------------------------------- | ----------------------------------------------------------------- |
 | [pipeline.md](docs/pipeline.md)      | How the pipeline runs: request → worker → findings, adding a job, stuck scans, crt.sh outages |
 | [ROADMAP.md](docs/ROADMAP.md)      | The 8-week plan — what gets built when, and why in that order     |
+| [docs/weeks/](docs/weeks/)         | The weekly boards — every task, who owns it, what each week deliberately leaves out |
 | [DECISIONS.md](docs/DECISIONS.md)  | Every architectural decision and the reasoning behind it          |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How we work: branches, PRs, review, definition of done            |
 | `docs/adr/`                        | Architecture Decision Records                                     |
