@@ -10,9 +10,9 @@ actually work in — not in a chat message that scrolled away.
 | Week | Board | Theme | Lead | Milestone |
 |---|---|---|---|---|
 | 1 | [week-01](week-01/) | Walking skeleton — FastAPI, Postgres, Docker, migrations, a tenant | Zyad | [#1](https://github.com/emad-anwer/tem-platform/milestone/1) |
-| 2 | [week-02](week-02/) | Identity we don't own, isolation we do — Zitadel, RBAC, tenant scoping | Arwa | [#2](https://github.com/emad-anwer/tem-platform/milestone/2) |
+| 2 | [week-02](week-02/) | Identity we don't own, isolation we do — Zitadel, RBAC, tenant scoping | Tasneem | [#2](https://github.com/emad-anwer/tem-platform/milestone/2) |
 | 3 | [week-03](week-03/) | Work leaves the request path — arq, the pipeline spine, first findings | Islam | [#3](https://github.com/emad-anwer/tem-platform/milestone/3) |
-| 4 | [week-04](week-04/) | The platform sends its own packets — the ASM scanner | Tasneem | [#4](https://github.com/emad-anwer/tem-platform/milestone/4) |
+| 4 | [week-04](week-04/) | The platform sends its own packets — the ASM scanner | Arwa | [#4](https://github.com/emad-anwer/tem-platform/milestone/4) |
 
 The eight-week arc is in [`../ROADMAP.md`](../ROADMAP.md); the reasoning behind the decisions it
 rests on is in [`../DECISIONS.md`](../DECISIONS.md).

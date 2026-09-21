@@ -1,6 +1,6 @@
 # W4-04 · Async TCP connect scanner
 
-**Owner:** Arwa · **Reviewer:** Tasneem · **Effort:** 5h · **Depends on:** W4-02, W4-03
+**Owner:** Tasneem · **Reviewer:** Arwa · **Effort:** 5h · **Depends on:** W4-02, W4-03
 
 > ⚠️ **Scope.** Until W4-02 merges, `localhost` and the four `just lab-up` containers are the
 > only things you may point any of this at. After it merges, the allowlist is. Anything else —

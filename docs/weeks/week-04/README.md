@@ -1,6 +1,6 @@
 # Week 4 — The platform sends its own packets
 
-**Sunday–Thursday · Lead: Tasneem**
+**Sunday–Thursday · Lead: Arwa**
 
 Code repository: **<https://github.com/emad-anwer/tem-platform/>** — every active task below is a
 live issue there.
@@ -50,13 +50,13 @@ worse than no boundary, because everyone assumes it is doing something.
 | [W4-01](W4-01-finding-taxonomy-adr.md) 🔑 | ADR-0004: finding kinds, fingerprints, change semantics | Tasneem | all four + mentor | 2h + 45m | — | [#93](https://github.com/emad-anwer/tem-platform/issues/93) |
 | [W4-02](W4-02-scan-scope-allowlist.md) 🔑 | Scan scope: a default-deny allowlist | Islam | Zyad + mentor | 4h | W4-01 | [#94](https://github.com/emad-anwer/tem-platform/issues/94) |
 | [W4-03](W4-03-finding-kinds.md) 🔑 | Finding kinds and a fingerprint that isn't about subdomains | Zyad | Arwa + mentor | 4h | W4-01 | [#95](https://github.com/emad-anwer/tem-platform/issues/95) |
-| [W4-04](W4-04-tcp-connect-scanner.md) 🔑 | Async TCP connect scanner | Arwa | Tasneem | 5h | W4-02, W4-03 | [#96](https://github.com/emad-anwer/tem-platform/issues/96) |
+| [W4-04](W4-04-tcp-connect-scanner.md) 🔑 | Async TCP connect scanner | Tasneem | Arwa | 5h | W4-02, W4-03 | [#96](https://github.com/emad-anwer/tem-platform/issues/96) |
 | [W4-05](W4-05-rate-limiting.md) | Redis-backed per-host rate limiting | Zyad | Islam | 4h | W4-02 | [#97](https://github.com/emad-anwer/tem-platform/issues/97) |
 | [W4-06](W4-06-http-prober.md) | HTTP prober: status, title, headers, tech fingerprint | Islam | Zyad | 5h | W4-04, W4-05 | [#98](https://github.com/emad-anwer/tem-platform/issues/98) |
 | [W4-07](W4-07-tls-certificates.md) | TLS certificate parsing, and SANs back into discovery | Arwa | Tasneem | 4h | W4-04 | [#99](https://github.com/emad-anwer/tem-platform/issues/99) |
 | [W4-08](W4-08-change-detection.md) | Change detection between runs | Zyad | Islam | 4h | W4-03 | [#100](https://github.com/emad-anwer/tem-platform/issues/100) |
 | [W4-09](W4-09-scheduled-scans.md) | Scheduled scans and the stale-run sweeper | Islam | Zyad | 3h | W4-03 | [#101](https://github.com/emad-anwer/tem-platform/issues/101) |
-| [W4-10](W4-10-scan-orchestration.md) | Scan orchestration: one run, three sources | Tasneem | Islam | 3h | W4-04, W4-06, W4-07 | [#102](https://github.com/emad-anwer/tem-platform/issues/102) |
+| [W4-10](W4-10-scan-orchestration.md) | Scan orchestration: one run, three sources | Arwa | Islam | 3h | W4-04, W4-06, W4-07 | [#102](https://github.com/emad-anwer/tem-platform/issues/102) |
 | [W4-11](W4-11-asm-docs.md) | ASM scanner docs and the scope policy page | Tasneem | Arwa | 2h | W4-10 | [#103](https://github.com/emad-anwer/tem-platform/issues/103) |
 
 **Optional — do not start unless Wednesday is clean:**
@@ -78,12 +78,12 @@ your own code looked like to someone reading it cold a week later.
 |---|---|---|---|---|---|
 | [BUG-01](BUG-01-hardcoded-subdomain-kind.md) | `core` hardcodes `"subdomain"` in three places | W4-03 | Zyad | in W4-03 | [#104](https://github.com/emad-anwer/tem-platform/issues/104) |
 | [BUG-02](BUG-02-mark-stale-runs-has-no-caller.md) | `mark_stale_runs` has no caller — dead since it merged | W4-09 | Islam | in W4-09 | [#105](https://github.com/emad-anwer/tem-platform/issues/105) |
-| [BUG-03](BUG-03-run-scheduled-scan-is-a-stub.md) | `run_scheduled_scan` is a registered stub that logs success | W4-10 | Tasneem | in W4-10 | [#106](https://github.com/emad-anwer/tem-platform/issues/106) |
-| [BUG-04](BUG-04-dead-worker-context-module.md) | `worker/context.py` — a second, dead way to bind job context | W4-10 | Tasneem | in W4-10 | [#107](https://github.com/emad-anwer/tem-platform/issues/107) |
+| [BUG-03](BUG-03-run-scheduled-scan-is-a-stub.md) | `run_scheduled_scan` is a registered stub that logs success | W4-10 | Arwa | in W4-10 | [#106](https://github.com/emad-anwer/tem-platform/issues/106) |
+| [BUG-04](BUG-04-dead-worker-context-module.md) | `worker/context.py` — a second, dead way to bind job context | W4-10 | Arwa | in W4-10 | [#107](https://github.com/emad-anwer/tem-platform/issues/107) |
 | [BUG-05](BUG-05-pipeline-reads-have-no-permission.md) | Four pipeline GET routes have no permission check | itself | **Arwa** | **1h** | [#108](https://github.com/emad-anwer/tem-platform/issues/108) |
 
 **Only BUG-05 is extra work.** The other four are already paid for inside a task you were going to
-do anyway. BUG-05 is Thursday work, or whenever a gap opens — never ahead of W4-04.
+do anyway. BUG-05 is Thursday work, or whenever a gap opens — never ahead of W4-10.
 
 None of the five is a reprimand. Week 3 was asked for one finding kind and shipped one finding kind;
 generalising on the second case is correct, not late. What is worth sitting with is BUG-02: a
@@ -94,16 +94,16 @@ and the test suite will be green every time.
 
 | Intern | Tasks | Task hours | + review/standups | Total |
 |---|---|---|---|---|
-| **Tasneem** (lead) | 01, 10, 11 | 7h | +4h lead, +3h review | **14h** |
+| **Arwa** (lead) | 07, 10, BUG-05 | 8h | +4h lead, +3h review | **15h** |
 | **Islam** | 02, 06, 09 | 12h | +3h | **15h** |
 | **Zyad** | 03, 05, 08 | 12h | +3h | **15h** |
-| **Arwa** | 04, 07, BUG-05 | 10h | +3h | **13h** |
+| **Tasneem** | 01, 04, 11 | 9h | +3h | **12h** |
 
 41h of task work against 20h/week each — the same shape as week 3, which held.
 
-**Arwa is lightest on purpose, and for a different reason than last week.** W4-04 is the task three
-other tasks are waiting on. If it slips she needs room to recover it without W4-06, W4-07 and W4-10
-stalling behind her.
+**Tasneem is lightest on purpose.** W4-04 is the task three other tasks are waiting on. If it slips
+she needs room to recover it without W4-06, W4-07 and W4-10 stalling behind her — and the lead, who
+has stand-ups and integration to run, is the wrong person to put underneath that.
 
 ## Critical path
 

@@ -1,6 +1,6 @@
 # Week 2 — Identity we don't own, isolation we do
 
-**Sunday–Thursday · Lead: Arwa**
+**Sunday–Thursday · Lead: Tasneem**
 
 Code repository: **<https://github.com/emad-anwer/tem-platform/>** — every task below is a live issue there.
 Milestone: [Week 2 — Identity We Don't Own, Isolation We Do](https://github.com/emad-anwer/tem-platform/milestone/2) ·
@@ -30,13 +30,13 @@ opinion about, which is which rows a tenant may see.
 
 | Intern | Tasks | Task hours | + review/standups | Total |
 |---|---|---|---|---|
-| **Arwa** (lead) | 02, 04, 11 | 9h | +4h lead, +3h review | **16h** |
+| **Tasneem** (lead) | 09, 10 | 10h | +4h lead, +3h review | **17h** |
+| **Arwa** | 02, 04, 11 | 9h | +3h | **12h** |
 | **Islam** | 01, 03, 06 | 11h | +3h | **14h** |
 | **Zyad** | 05, 07, 08 | 12h | +3h | **15h** |
-| **Tasneem** | 09, 10 | 10h | +3h | **13h** |
 
-42h of task work against 20h/week each. Tasneem is deliberately light: W2-09 is the task most
-likely to overrun, and it needs the room.
+42h of task work against 20h/week each. Tasneem carries only two tasks because she is leading —
+and because W2-09 is the task most likely to overrun, which is why the second one is small.
 
 ## Critical path
 

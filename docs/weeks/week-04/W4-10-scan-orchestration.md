@@ -1,6 +1,6 @@
 # W4-10 · Scan orchestration: one scan run, three sources
 
-**Owner:** Tasneem · **Reviewer:** Islam · **Effort:** 3h · **Depends on:** W4-04, W4-06, W4-07
+**Owner:** Arwa · **Reviewer:** Islam · **Effort:** 3h · **Depends on:** W4-04, W4-06, W4-07
 
 > ⚠️ **Scope.** Until W4-02 merges, `localhost` and the four `just lab-up` containers are the
 > only things you may point any of this at. After it merges, the allowlist is. Anything else —

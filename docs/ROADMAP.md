@@ -21,7 +21,7 @@ answers. Then it becomes something another engineer could pick up.
 
 | Wk 1 | Wk 2 | Wk 3 | Wk 4 | Wk 5 | Wk 6 | Wk 7 | Wk 8 |
 |---|---|---|---|---|---|---|---|
-| Zyad | Arwa | Islam | Tasneem | Tasneem | Islam | Arwa | Zyad |
+| Zyad | Tasneem | Islam | Arwa | Tasneem | Islam | Arwa | Zyad |
 
 Each leads twice. The second turn is where growth shows.
 
