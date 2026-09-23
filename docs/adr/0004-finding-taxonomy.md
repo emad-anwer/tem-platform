@@ -50,6 +50,7 @@ class FindingKind(StrEnum):
     TLS_CERTIFICATE = "tls_certificate"
     # week 5 adds a member here, not a migration
 
+
 kind: Mapped[FindingKind] = mapped_column(Text, nullable=False)  # column unchanged
 ```
 
@@ -72,7 +73,9 @@ tuple in the table below turns into a string.
 
 ```python
 # core/fingerprint.py
-def compute_fingerprint(kind: FindingKind, target_id: UUID, value_normalized: str) -> str:
+def compute_fingerprint(
+    kind: FindingKind, target_id: UUID, value_normalized: str
+) -> str:
     identity = f"{kind}|{target_id}|{value_normalized}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 ```

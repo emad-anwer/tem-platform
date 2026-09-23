@@ -21,7 +21,7 @@ And the matrix they would check against has nothing to check:
 
 ```python
 class Permission(StrEnum):
-    TENANT_CREATE, TENANT_READ, TARGET_CREATE, SCAN_START     # that is the whole list
+    TENANT_CREATE, TENANT_READ, TARGET_CREATE, SCAN_START  # that is the whole list
 ```
 
 **This is not #65 again.** Those routes leaked across tenants; these do not. `get_pipeline_service`
