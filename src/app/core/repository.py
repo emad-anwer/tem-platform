@@ -11,6 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.context import get_current_principal
 from app.core.auth.principal import Principal, Role
+from app.core.fingerprint import (
+    FindingKind,
+    compute_fingerprint,
+    normalize_finding_value,
+)
 from app.core.jobs.states import ScanRunStatus, transition_status
 from app.core.models import Finding, ScanRun, Target, Tenant, TenantOwnedMixin
 from app.core.pagination import decode_cursor, encode_cursor
@@ -671,22 +676,28 @@ class FindingRepository(TenantScopedRepository[Finding]):
         *,
         target_id: UUID,
         run_id: UUID,
+        kind: FindingKind,
         value: str,
-        fingerprint: str,
+        severity: str = "info",
+        raw_severity: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> tuple[Finding, bool]:
         now = datetime.now(UTC)
+        kind = FindingKind(kind)
+        value_normalized = normalize_finding_value(kind, value)
         statement = insert(Finding).values(
             tenant_id=self.tenant_id,
             target_id=target_id,
             last_seen_run_id=run_id,
-            kind="subdomain",
+            kind=kind,
             value=value,
-            value_normalized=value,
-            fingerprint=fingerprint,
-            severity="info",
+            value_normalized=value_normalized,
+            fingerprint=compute_fingerprint(kind, target_id, value_normalized),
+            severity=severity,
+            raw_severity=raw_severity,
             first_seen_at=now,
             last_seen_at=now,
-            details={},
+            details=details or {},
         )
         statement = statement.on_conflict_do_update(
             constraint="uq_findings_tenant_fingerprint",
@@ -695,6 +706,9 @@ class FindingRepository(TenantScopedRepository[Finding]):
                 "last_seen_run_id": run_id,
                 "times_seen": Finding.times_seen + 1,
                 "status": "active",
+                "severity": statement.excluded.severity,
+                "raw_severity": statement.excluded.raw_severity,
+                "details": Finding.details.op("||")(statement.excluded.details),
                 "updated_at": now,
             },
         ).returning(Finding, literal_column("xmax = 0").label("inserted"))
@@ -714,7 +728,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
     ) -> tuple[int, int]:
         """Upsert multiple findings in one transaction, chunking the INSERT statements.
 
-        Each item must provide: ``target_id``, ``run_id``, ``value``, ``fingerprint``.
+        Each item must provide: ``target_id``, ``run_id``, ``kind``, ``value``.
         Optional per-item keys: ``severity`` (default ``"info"``), ``raw_severity``
         (default ``None``), ``details`` (default ``{}``).
 
@@ -759,26 +773,29 @@ class FindingRepository(TenantScopedRepository[Finding]):
         try:
             for chunk_start in range(0, len(items), batch_size):
                 chunk = items[chunk_start : chunk_start + batch_size]
-                values = [
-                    {
-                        "tenant_id": self.tenant_id,  # Force-stamp; caller value overridden.
-                        "target_id": item["target_id"],
-                        "last_seen_run_id": item["run_id"],
-                        "kind": "subdomain",
-                        "value": item["value"],
-                        # Callers pass already-normalised hostnames (discovery.py
-                        # normalises via _normalise_hostname before batching).
-                        "value_normalized": item["value"],
-                        "fingerprint": item["fingerprint"],
-                        # ADR-0003 §5: platform normalises severity; module may suggest via raw_severity.
-                        "severity": item.get("severity", "info"),
-                        "raw_severity": item.get("raw_severity", None),
-                        "first_seen_at": now,
-                        "last_seen_at": now,
-                        "details": item.get("details", {}),
-                    }
-                    for item in chunk
-                ]
+                values = []
+                for item in chunk:
+                    kind = FindingKind(item["kind"])
+                    value_normalized = normalize_finding_value(kind, item["value"])
+                    values.append(
+                        {
+                            "tenant_id": self.tenant_id,  # Force-stamp; caller value overridden.
+                            "target_id": item["target_id"],
+                            "last_seen_run_id": item["run_id"],
+                            "kind": kind,
+                            "value": item["value"],
+                            "value_normalized": value_normalized,
+                            "fingerprint": compute_fingerprint(
+                                kind, item["target_id"], value_normalized
+                            ),
+                            # ADR-0003 §5: module may suggest severity via raw_severity.
+                            "severity": item.get("severity", "info"),
+                            "raw_severity": item.get("raw_severity", None),
+                            "first_seen_at": now,
+                            "last_seen_at": now,
+                            "details": item.get("details", {}),
+                        }
+                    )
                 excluded = insert(Finding).excluded
                 stmt = (
                     insert(Finding)
@@ -822,12 +839,14 @@ class FindingRepository(TenantScopedRepository[Finding]):
         *,
         target_id: UUID,
         seen_fingerprints: set[str],
+        kinds: set[FindingKind],
     ) -> int:
         """Mark active discoveries absent from the latest scan as resolved."""
         statement = update(Finding).where(
             Finding.tenant_id == self.tenant_id,
             Finding.target_id == target_id,
             Finding.status == "active",
+            Finding.kind.in_([FindingKind(kind).value for kind in kinds]),
         )
         if seen_fingerprints:
             statement = statement.where(Finding.fingerprint.not_in(seen_fingerprints))

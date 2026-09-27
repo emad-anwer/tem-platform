@@ -9,6 +9,7 @@ Validates:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -22,6 +23,7 @@ from app.core.auth.context import (
     set_current_principal,
 )
 from app.core.auth.principal import Principal, Role
+from app.core.fingerprint import FindingKind
 from app.core.models import Finding, ScanRun, Target
 from app.core.repository import (
     FindingRepository,
@@ -865,8 +867,8 @@ async def test_upsert_discovery_batch_commits_once(
         {
             "target_id": target.id,
             "run_id": run.id,
+            "kind": FindingKind.SUBDOMAIN,
             "value": f"sub{i}.example.com",
-            "fingerprint": f"fp-batch-{i:04d}",
         }
         for i in range(400)
     ]
@@ -908,8 +910,8 @@ async def test_upsert_discovery_batch_tenant_stamp_cannot_be_bypassed(
         {
             "target_id": target.id,
             "run_id": run.id,
+            "kind": FindingKind.SUBDOMAIN,
             "value": f"sub{i}.example.com",
-            "fingerprint": f"fp-cross-{i}",
             "tenant_id": tenant_b.id,  # caller attempts cross-tenant write
         }
         for i in range(5)
@@ -924,3 +926,68 @@ async def test_upsert_discovery_batch_tenant_stamp_cannot_be_bypassed(
     assert not any(f.tenant_id == tenant_b.id for f in findings), (
         "No finding must carry the caller-supplied tenant_id (tenant_b)"
     )
+
+
+@pytest.mark.asyncio
+async def test_finding_batch_normalizes_mixed_kinds_and_merges_reobservations(
+    db_session: AsyncSession, two_tenants
+):
+    tenant, _ = two_tenants
+    set_current_principal(Principal(user_id="u", tenant_id=tenant.id, role=Role.OWNER))
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="example.com", value_normalized="example.com"
+    )
+    first_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    second_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    repo = FindingRepository(db_session)
+
+    total, new = await repo.upsert_discovery_batch(
+        [
+            {
+                "target_id": target.id,
+                "run_id": first_run.id,
+                "kind": FindingKind.SUBDOMAIN,
+                "value": "WWW.Example.COM.",
+                "details": {"source": "dns", "ip": "192.0.2.1"},
+            },
+            {
+                "target_id": target.id,
+                "run_id": first_run.id,
+                "kind": FindingKind.OPEN_PORT,
+                "value": "WWW.Example.COM:0080/TCP",
+            },
+        ]
+    )
+    assert (total, new) == (2, 2)
+    first_rows, _ = await repo.list(limit=10)
+    by_kind = {finding.kind: finding for finding in first_rows}
+    assert by_kind[FindingKind.SUBDOMAIN].value_normalized == "www.example.com"
+    assert by_kind[FindingKind.OPEN_PORT].value_normalized == ("www.example.com:80/tcp")
+    original_first_seen = by_kind[FindingKind.SUBDOMAIN].first_seen_at
+    original_last_seen = by_kind[FindingKind.SUBDOMAIN].last_seen_at
+
+    await asyncio.sleep(0.002)
+    total, new = await repo.upsert_discovery_batch(
+        [
+            {
+                "target_id": target.id,
+                "run_id": second_run.id,
+                "kind": FindingKind.SUBDOMAIN,
+                "value": "www.example.com",
+                "details": {"source": "ct"},
+            }
+        ]
+    )
+
+    assert (total, new) == (1, 0)
+    latest = await repo.get_by_fingerprint(by_kind[FindingKind.SUBDOMAIN].fingerprint)
+    assert latest is not None
+    await db_session.refresh(latest)
+    assert latest.first_seen_at == original_first_seen
+    assert latest.last_seen_at > original_last_seen
+    assert latest.times_seen == 2
+    assert latest.details == {"source": "ct", "ip": "192.0.2.1"}
