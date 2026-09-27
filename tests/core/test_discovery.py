@@ -13,6 +13,7 @@ from app.core.discovery import (
     _normalise_hostname,
     discover_domain,
 )
+from app.core.fingerprint import FindingKind
 from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
 
 
@@ -154,6 +155,54 @@ async def test_discovery_keeps_missing_findings_as_resolved(
     assert {finding.value: finding.status for finding in findings} == {
         "example.com": "active",
         "admin.example.com": "resolved",
+    }
+
+
+@pytest.mark.asyncio
+async def test_subdomain_scan_does_not_resolve_other_finding_kinds(
+    db_session, two_tenants
+) -> None:
+    tenant, _ = two_tenants
+    set_current_principal(
+        Principal(user_id="user-a", tenant_id=tenant.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="example.com", value_normalized="example.com"
+    )
+    seed_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    repository = FindingRepository(db_session)
+    await repository.upsert_discovery_batch(
+        [
+            {
+                "target_id": target.id,
+                "run_id": seed_run.id,
+                "kind": FindingKind.SUBDOMAIN,
+                "value": "admin.example.com",
+            },
+            {
+                "target_id": target.id,
+                "run_id": seed_run.id,
+                "kind": FindingKind.OPEN_PORT,
+                "value": "admin.example.com:443/tcp",
+            },
+        ]
+    )
+
+    scan_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    await discover_domain({"db": db_session}, scan_run, sources=(StaticSource(set()),))
+
+    findings, _ = await repository.list(limit=10)
+    status_by_identity = {
+        (finding.kind, finding.value_normalized): finding.status for finding in findings
+    }
+    assert status_by_identity == {
+        (FindingKind.SUBDOMAIN, "admin.example.com"): "resolved",
+        (FindingKind.OPEN_PORT, "admin.example.com:443/tcp"): "active",
+        (FindingKind.SUBDOMAIN, "example.com"): "active",
     }
 
 

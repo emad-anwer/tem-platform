@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import ipaddress
 import json
 from collections.abc import Iterable
@@ -16,6 +15,11 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.job_context import tenant_job
+from app.core.fingerprint import (
+    FindingKind,
+    compute_fingerprint,
+    normalize_finding_value,
+)
 from app.core.jobs.lifecycle import execute_scan_run
 from app.core.jobs.timeouts import outbound_http_timeout
 from app.core.models import ScanRun, Target
@@ -224,16 +228,24 @@ async def discover_domain(
             {
                 "target_id": target.id,
                 "run_id": run.id,
+                "kind": FindingKind.SUBDOMAIN,
                 "value": name,
-                "fingerprint": _fingerprint(target.id, name),
             }
             for name in sorted(names)
         ]
-        fingerprints = {item["fingerprint"] for item in items}
+        fingerprints = {
+            compute_fingerprint(
+                FindingKind.SUBDOMAIN,
+                target.id,
+                normalize_finding_value(FindingKind.SUBDOMAIN, item["value"]),
+            )
+            for item in items
+        }
         _, new_findings_count = await repository.upsert_discovery_batch(items)
         await repository.resolve_missing_discoveries(
             target_id=target.id,
             seen_fingerprints=fingerprints,
+            kinds={FindingKind.SUBDOMAIN},
         )
     else:
         new_findings_count = 0
@@ -317,8 +329,3 @@ def _is_domain(value: str) -> bool:
     except ValueError:
         return all(part and len(part) <= 63 for part in value.split("."))
     return False
-
-
-def _fingerprint(target_id: Any, value: str) -> str:
-    identity = f"subdomain|{target_id}|{value}"
-    return hashlib.sha256(identity.encode("utf-8")).hexdigest()

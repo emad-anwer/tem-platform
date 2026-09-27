@@ -22,6 +22,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
+from app.core.fingerprint import FindingKind
+
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy declarative models."""
@@ -205,7 +207,7 @@ class Finding(Base, TenantOwnedMixin):
     last_seen_run_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("scan_runs.id", ondelete="SET NULL"), nullable=True, default=None
     )
-    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[FindingKind] = mapped_column(Text, nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     value_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     fingerprint: Mapped[str] = mapped_column(CHAR(64), nullable=False)
