@@ -846,7 +846,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
             Finding.tenant_id == self.tenant_id,
             Finding.target_id == target_id,
             Finding.status == "active",
-            Finding.kind.in_([FindingKind(kind) for kind in kinds]),
+            Finding.kind.in_([FindingKind(kind).value for kind in kinds]),
         )
         if seen_fingerprints:
             statement = statement.where(Finding.fingerprint.not_in(seen_fingerprints))
