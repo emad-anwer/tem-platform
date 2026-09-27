@@ -18,6 +18,7 @@ from app.core.redis import (
     get_redis,
     wait_for_redis,
 )
+from app.core.scope import get_scope
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +61,11 @@ async def startup(ctx: dict) -> None:
             "worker.db_unavailable",
             message="Database startup check failed; jobs that need DB will fail.",
         )
+
+    # W4-02: a malformed scan scope entry stops the worker before it can
+    # accept a job, rather than refusing (or worse, mis-scoping) at runtime.
+    scope = get_scope()
+    logger.info("scan.scope_loaded", entries=len(scope.entries))
 
     ctx["settings"] = settings
     logger.info("worker.ready")

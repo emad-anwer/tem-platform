@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.core.config import get_settings
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -328,6 +330,33 @@ class TestStartScan:
         )
 
         assert resp.status_code == 403
+        fake_arq_pool.enqueue_job.assert_not_awaited()
+
+    async def test_out_of_scope_target_returns_403_without_enqueuing(
+        self, auth_client, two_tenants, auth_headers, fake_arq_pool, monkeypatch
+    ):
+        """W4-02: an empty allowlist refuses at the API edge, before a job
+        exists — 403 problem details, nothing enqueued, no run row."""
+        tenant_a, _ = two_tenants
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        target = await _create_target(
+            auth_client, headers, value="no-scope.example.com"
+        )
+
+        monkeypatch.setenv("SCAN_SCOPE_ALLOWLIST", "")
+        get_settings.cache_clear()
+
+        resp = await auth_client.post(
+            f"/api/v1/targets/{target['id']}/scans", headers=headers
+        )
+
+        assert resp.status_code == 403
+        assert resp.headers["content-type"].startswith("application/problem+json")
+        body = resp.json()
+        assert body["title"] == "Forbidden"
+        assert "scan scope" in body["detail"]
         fake_arq_pool.enqueue_job.assert_not_awaited()
 
     async def test_target_not_found_returns_404(

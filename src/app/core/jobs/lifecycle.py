@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import ScanRun
 from app.core.repository import ScanRunRepository
+from app.core.scope import ScopeViolationError
 
 MAX_FAILURE_MESSAGE_LENGTH = 2000
 _RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
@@ -56,6 +57,11 @@ def scrub_failure_message(error: BaseException, *, error_kind: str) -> str:
         message = "retryable upstream failure"
     elif isinstance(error, TerminalJobError):
         message = "terminal job failure"
+    elif isinstance(error, ScopeViolationError):
+        # W4-02: no hostnames, addresses or entry text from the target out
+        # through the stored message — the reason enum is enough, and the
+        # structured scan.scope_refused log carries the detail.
+        message = f"target outside scan scope ({error.reason.value})"
     else:
         message = "job failed"
     return f"{error_kind}: {message}"[:MAX_FAILURE_MESSAGE_LENGTH]

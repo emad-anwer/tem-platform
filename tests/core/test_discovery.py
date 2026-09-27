@@ -6,6 +6,7 @@ import pytest
 
 from app.core.auth.context import set_current_principal
 from app.core.auth.principal import Principal, Role
+from app.core.config import get_settings
 from app.core.discovery import (
     CertificateTransparencySource,
     DNSSource,
@@ -14,6 +15,7 @@ from app.core.discovery import (
     discover_domain,
 )
 from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
+from app.core.scope import ScopeReason, ScopeViolationError
 
 
 @pytest.fixture
@@ -155,6 +157,48 @@ async def test_discovery_keeps_missing_findings_as_resolved(
         "example.com": "active",
         "admin.example.com": "resolved",
     }
+
+
+@pytest.mark.asyncio
+async def test_discovery_refuses_out_of_scope_target_before_running_sources(
+    db_session, two_tenants, monkeypatch
+) -> None:
+    """W4-02 defense in depth, worker layer: a queued job refuses at scan time.
+
+    The API refusing to queue a scan is not the same guarantee as a job
+    refusing to run one — and neither is a substitute for the connection
+    layer in scope.py, which would refuse even if this check were deleted.
+    """
+    tenant, _ = two_tenants
+    set_current_principal(
+        Principal(user_id="user-a", tenant_id=tenant.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="locked.example.com", value_normalized="locked.example.com"
+    )
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+
+    monkeypatch.setenv("SCAN_SCOPE_ALLOWLIST", "")
+    get_settings.cache_clear()
+
+    class RecordingSource:
+        name = "recording"
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def collect(self, domain: str) -> SourceResult:
+            self.calls.append(domain)
+            return SourceResult(set())
+
+    source = RecordingSource()
+    with pytest.raises(ScopeViolationError) as exc_info:
+        await discover_domain({"db": db_session}, run, sources=(source,))
+
+    assert exc_info.value.reason is ScopeReason.EMPTY_ALLOWLIST
+    assert source.calls == []
 
 
 @pytest.mark.asyncio

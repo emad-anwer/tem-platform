@@ -20,6 +20,7 @@ from app.core.jobs.lifecycle import execute_scan_run
 from app.core.jobs.timeouts import outbound_http_timeout
 from app.core.models import ScanRun, Target
 from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
+from app.core.scope import check_scope
 
 DNS_RECORD_TYPES = ("A", "AAAA", "CNAME")
 DEFAULT_MAX_RESULTS = 500
@@ -177,6 +178,12 @@ async def discover_domain(
     if not domain or not _is_domain(domain):
         raise ValueError("Target is not a valid domain.")
 
+    # W4-02: the worker re-checks scope itself — the API refusing to queue a
+    # scan is not the same guarantee as a job refusing to run one. A refusal
+    # raises ScopeViolationError, which execute_scan_run turns into a terminal
+    # failure instead of a retry loop.
+    await check_scope(domain)
+
     source_list = list(sources)
     await _record_sources(
         ctx["db"], run.id, [source.name for source in source_list], [], None
@@ -261,6 +268,10 @@ async def subdomain_discovery_job(
 ) -> ScanRun | None:
     """Run passive DNS and certificate-transparency discovery for one run."""
     ctx["run_id"] = str(payload.run_id)
+    # This client talks to crt.sh — scanner infrastructure, not a scan target.
+    # Scope (scope.py) governs connections *to targets*; target-facing HTTP
+    # (W4-06) must go through scoped_http_client() so the gate sits at the
+    # connection layer, where no request can slip past it.
     async with httpx.AsyncClient() as client:
         sources: tuple[ScanSource, ...] = (
             DNSSource(),

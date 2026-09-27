@@ -53,6 +53,12 @@ class Settings(BaseSettings):
 
     problem_base_url: str = "https://tem-platform.dev/problems"
 
+    # W4-02 (issue #94): the scan scope allowlist — comma-separated entries of
+    # hostnames, IPs, CIDRs, and `host:port` loopback pairs (see
+    # `app.core.scope`). Default deny: empty scans nothing. Configuration,
+    # not per-tenant data — per-tenant scope is week 6.
+    scan_scope_allowlist: str = ""
+
     # Fail-closed: FastAPI debug tracebacks leak source code and absolute
     # paths on unhandled errors (OWASP A05), so debug may only be enabled
     # explicitly via setting DEBUG=true. Default is False.
