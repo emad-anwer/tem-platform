@@ -26,7 +26,7 @@ logger = structlog.get_logger(__name__)
 DEFAULT_SCAN_MAX_ATTEMPTS = 3
 
 
-async def get_pipeline_service(
+def get_pipeline_service(
     session: AsyncSession = Depends(get_db),
     principal: Principal = Depends(get_principal),
 ) -> "PipelineService":
