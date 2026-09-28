@@ -13,6 +13,7 @@ from app.core.middlewares.request_id import RequestIDMiddleware
 from app.core.pipeline.routes import router as pipeline_router
 from app.core.redis import dispose_redis, wait_for_redis
 from app.core.routes import router as tenant_router
+from app.core.scope import get_scope
 from app.core.zitadel.client import (
     ZitadelApiError,
     ZitadelUnavailableError,
@@ -62,6 +63,11 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings.log_level)
+    # W4-02: parse the scan scope here, once, so a malformed allowlist entry
+    # is a startup failure — not a 500 on somebody's first scan. An empty
+    # list is legal (default deny: nothing is scannable).
+    scope = get_scope()
+    logger.info("scan.scope_loaded", entries=len(scope.entries))
     app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
     # Middlewares
     app.add_middleware(RequestIDMiddleware)

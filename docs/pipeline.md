@@ -38,6 +38,21 @@ sequenceDiagram
     C->>A: GET /scan_runs/{id} (poll) → GET /findings
 ```
 
+**Scan scope (W4-02), defense in depth.** Three layers refuse, and the
+**connection layer is the foundation**: scanner traffic only leaves through
+`scoped_open_connection()` (TCP, the seam W4-04 connects through) or
+`scoped_http_client()` (HTTP, W4-06's) in `src/app/core/scope.py`. Both
+decide *at the moment the connection is about to open* — nothing above them
+can forget to ask — and both connect to the **checked** address instead of
+resolving again, which is the DNS-rebinding answer. Above that, the worker
+re-checks inside `discover_domain` (a job refusing to run is not the same
+guarantee as an API refusing to queue it), and the API's `start_scan` answers
+`403` problem details before a run row exists — nothing enqueued. Refusals
+log `scan.scope_refused` (`target`, `resolved`, `reason`); inside a job they
+are **terminal** failures carrying `terminal: target outside scan scope (…)`.
+Loopback is reachable only through a `host:port` entry; link-local and
+multicast are blocked even when listed. Full scope policy: W4-11.
+
 ## 2. How a module adds a new job
 
 Do these four things; the framework does the rest. Copy

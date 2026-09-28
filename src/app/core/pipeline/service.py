@@ -20,12 +20,13 @@ from app.core.models import Finding, ScanRun, Target
 from app.core.pipeline.validation import TargetKind, normalize_target
 from app.core.redis import get_arq_pool
 from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
+from app.core.scope import check_scope
 
 logger = structlog.get_logger(__name__)
 DEFAULT_SCAN_MAX_ATTEMPTS = 3
 
 
-async def get_pipeline_service(
+def get_pipeline_service(
     session: AsyncSession = Depends(get_db),
     principal: Principal = Depends(get_principal),
 ) -> "PipelineService":
@@ -90,6 +91,10 @@ class PipelineService:
                 detail="Cannot start a scan for an inactive target.",
                 errors=[{"field": "target_id", "message": "Target is inactive."}],
             )
+
+        # W4-02: default-deny scope, decided before a run row exists — a
+        # refused target never gets queued, and the refusal is a 403.
+        await check_scope(target.value_normalized)
 
         scan_run = await self._scan_runs.create(
             target_id=target.id,

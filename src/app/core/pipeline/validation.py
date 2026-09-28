@@ -8,6 +8,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 class TargetKind(StrEnum):
     DOMAIN = "domain"
+    # ADR-0004 §5: single-label, non-publicly-resolvable names the worker reaches
+    # on the compose network (e.g. `lab-nginx`). `domain` stays a multi-label
+    # subdomain-enumeration root — it is not loosened to accept these.
+    HOSTNAME = "hostname"
     IPV4 = "ipv4"
     IPV6 = "ipv6"
     CIDR = "cidr"
@@ -45,6 +49,37 @@ def normalize_domain(value: str) -> str:
             raise ValueError(f"invalid domain label: {label!r}") from exc
         if not _DOMAIN_LABEL_RE.match(encoded):
             raise ValueError(f"invalid domain label: {label!r}")
+        encoded_labels.append(encoded)
+
+    return ".".join(encoded_labels)
+
+
+def normalize_hostname(value: str) -> str:
+    """Normalize a hostname target: any resolvable name, single label included.
+
+    Same rules as :func:`normalize_domain` minus the two-label floor — the worker
+    reaches lab containers by single-label compose-network names (`lab-nginx`),
+    which `normalize_domain` rejects on purpose (ADR-0004 §5).
+    """
+    v = value.strip().lower()
+    v = v.removesuffix(".")
+    if not v:
+        raise ValueError("hostname must not be empty")
+    if "*" in v:
+        raise ValueError("wildcard hostnames are not allowed")
+    if len(v) > MAX_DOMAIN_LENGTH:
+        raise ValueError("hostname exceeds maximum length")
+
+    encoded_labels: list[str] = []
+    for label in v.split("."):
+        if not label:
+            raise ValueError("hostname contains an empty label")
+        try:
+            encoded = label.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValueError(f"invalid hostname label: {label!r}") from exc
+        if not _DOMAIN_LABEL_RE.match(encoded):
+            raise ValueError(f"invalid hostname label: {label!r}")
         encoded_labels.append(encoded)
 
     return ".".join(encoded_labels)
@@ -100,6 +135,8 @@ def normalize_target(kind: TargetKind, value: str) -> str:
     match kind:
         case TargetKind.DOMAIN:
             return normalize_domain(value)
+        case TargetKind.HOSTNAME:
+            return normalize_hostname(value)
         case TargetKind.IPV4:
             return normalize_ip(value, version=4)
         case TargetKind.IPV6:

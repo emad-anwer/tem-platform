@@ -143,6 +143,7 @@ The `.env` file is gitignored. Never commit it.
 | `DATABASE_URL` | `postgresql+asyncpg://tem_user:changeme@postgres:5432/tem_platform` | The async SQLAlchemy connection string. The hostname `postgres` resolves inside Docker Compose. |
 | `REDIS_PASSWORD` | `changeme` | **Change in production** |
 | `REDIS_URL` | `redis://:changeme@redis:6379/0` | The hostname `redis` resolves inside Docker Compose. |
+| `SCAN_SCOPE_ALLOWLIST` | `lab-nginx,lab-apache,lab-nonstandard,lab-tls-san` | **Default-deny scan scope** (W4-02): comma-separated hostnames, IPs, CIDRs, and `host:port` loopback entries the scanner may reach. Empty/unset scans nothing; link-local and multicast are blocked even when listed. See `src/app/core/scope.py` and `docs/pipeline.md` §1. |
 
 The defaults in `.env.example` work for local development without modification. If you change `POSTGRES_USER`, `POSTGRES_PASSWORD`, or `POSTGRES_DB`, update `DATABASE_URL` to match.
 

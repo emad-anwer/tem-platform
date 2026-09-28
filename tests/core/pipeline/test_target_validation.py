@@ -96,6 +96,7 @@ class TestNormalizeTargetDispatch:
         ("kind", "value", "expected"),
         [
             (TargetKind.DOMAIN, "Example.COM", "example.com"),
+            (TargetKind.HOSTNAME, "Lab-Nginx", "lab-nginx"),
             (TargetKind.IPV4, "10.0.0.1", "10.0.0.1"),
             (TargetKind.IPV6, "::1", "::1"),
             (TargetKind.CIDR, "10.0.0.0/8", "10.0.0.0/8"),
@@ -110,3 +111,10 @@ class TestNormalizeTargetDispatch:
     )
     def test_dispatches_to_correct_normalizer(self, kind, value, expected):
         assert normalize_target(kind, value) == expected
+
+
+def test_hostname_kind_accepts_single_label_where_domain_still_rejects():
+    """ADR-0004 §5: the two kinds are deliberately different floors."""
+    assert normalize_target(TargetKind.HOSTNAME, "lab-nginx") == "lab-nginx"
+    with pytest.raises(ValueError):
+        normalize_target(TargetKind.DOMAIN, "lab-nginx")

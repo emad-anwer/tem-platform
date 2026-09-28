@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import time
 from collections.abc import AsyncGenerator
@@ -10,9 +11,20 @@ from auth_fixtures import FIXTURE_ISSUER, FIXTURE_PROJECT_ID
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+# W4-02 (issue #94): a fixed test allowlist, set before any app import reads
+# settings — `create_app()` parses the scan scope at import time, and tests
+# must not depend on a developer's `.env` (or empty-scope it and break
+# somebody else's machine).
+TEST_SCAN_SCOPE_ALLOWLIST = (
+    "lab-nginx,lab-apache,lab-nonstandard,lab-tls-san,"
+    "203.0.113.0/24,127.0.0.1:8081,[::1]:8081"
+)
+os.environ["SCAN_SCOPE_ALLOWLIST"] = TEST_SCAN_SCOPE_ALLOWLIST
+
 from app.core.auth.dependencies import get_principal, get_verifier_factory
 from app.core.auth.principal import Principal, Role
 from app.core.auth.token_verifier import JWKSCache, TokenVerifier
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.main import create_app
 from app.core.models import Base
@@ -26,6 +38,27 @@ from app.core.zitadel.client import (
 pytest_plugins = ["auth_fixtures"]
 
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
+
+
+# Offline stand-in for DNS: every test name resolves into the documentation
+# range the test allowlist covers. Never touches a resolver.
+async def _test_resolve_addresses(hostname: str) -> list[ipaddress.IPv4Address]:
+    return [ipaddress.ip_address("203.0.113.10")]
+
+
+@pytest.fixture(autouse=True)
+def scan_scope(monkeypatch):
+    """Pin the scan scope for every test: fixed allowlist, no live DNS.
+
+    `check_scope` reads `get_settings()` through an lru_cache, so the cache is
+    cleared on both sides of the test — a test that overrides the env var
+    must never leak its allowlist into the next one.
+    """
+    monkeypatch.setenv("SCAN_SCOPE_ALLOWLIST", TEST_SCAN_SCOPE_ALLOWLIST)
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.core.scope.resolve_addresses", _test_resolve_addresses)
+    yield
+    get_settings.cache_clear()
 
 
 class FakeJWKSCache(JWKSCache):
