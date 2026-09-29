@@ -598,3 +598,177 @@ class TestListFindings:
 
         assert resp_a.status_code == 200
         assert resp_b.status_code == 200
+
+
+class TestScanRunChanges:
+    async def test_viewer_gets_bucket_counts_and_cursor_pages(
+        self, auth_client, db_session, two_tenants, auth_headers
+    ):
+        from datetime import UTC, datetime
+
+        from app.core.repository import (
+            ScanRunFindingRepository,
+            ScanRunRepository,
+            TargetRepository,
+        )
+
+        tenant_a, tenant_b = two_tenants
+        target = await TargetRepository(
+            db_session, tenant_id=tenant_a.id
+        ).create(
+            kind="domain",
+            value="changes.example.com",
+            value_normalized="changes.example.com",
+            is_active=True,
+        )
+        run = await ScanRunRepository(
+            db_session, tenant_id=tenant_a.id
+        ).create(target_id=target.id, max_attempts=3)
+        run.status = "succeeded"
+        db_session.add(run)
+        await db_session.commit()
+
+        timestamp = datetime.now(UTC).isoformat()
+        snapshots = []
+        for index, classification in enumerate(("new", "unchanged", "mutated")):
+            finding_id = str(uuid.uuid4())
+            snapshots.append(
+                {
+                    "finding_id": None,
+                    "classification": classification,
+                    "finding_snapshot": {
+                        "type": "findings",
+                        "id": finding_id,
+                        "attributes": {
+                            "target_id": str(target.id),
+                            "last_seen_run_id": str(run.id),
+                            "kind": "subdomain",
+                            "value": f"host{index}.changes.example.com",
+                            "value_normalized": f"host{index}.changes.example.com",
+                            "fingerprint": uuid.uuid4().hex * 2,
+                            "severity": "info",
+                            "raw_severity": None,
+                            "status": "active",
+                            "first_seen_at": timestamp,
+                            "last_seen_at": timestamp,
+                            "times_seen": 1,
+                            "details": {},
+                            "created_at": timestamp,
+                            "updated_at": timestamp,
+                        },
+                    },
+                }
+            )
+        await ScanRunFindingRepository(
+            db_session, tenant_id=tenant_a.id
+        ).add_snapshots(scan_run_id=run.id, snapshots=snapshots)
+
+        viewer_headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="viewer"
+        )
+        first_page = await auth_client.get(
+            f"/api/v1/scan_runs/{run.id}/changes?size=1", headers=viewer_headers
+        )
+        assert first_page.status_code == 200
+        first_body = first_page.json()
+        counts = first_body["data"]["attributes"]["counts"]
+        assert counts == {
+            "new": 1,
+            "reappeared": 0,
+            "resolved": 0,
+            "unchanged": 1,
+            "mutated": 1,
+        }
+        assert first_body["links"]["next"]
+
+        seen = set()
+        page = first_page
+        while page.json()["links"]["next"]:
+            page_body = page.json()
+            findings = page_body["data"]["attributes"]["findings"]
+            seen.update(
+                classification
+                for classification, resources in findings.items()
+                if resources
+            )
+            page = await auth_client.get(
+                page_body["links"]["next"], headers=viewer_headers
+            )
+            assert page.status_code == 200
+        final_findings = page.json()["data"]["attributes"]["findings"]
+        seen.update(
+            classification
+            for classification, resources in final_findings.items()
+            if resources
+        )
+        assert seen == {"new", "unchanged", "mutated"}
+
+        other_tenant_headers = auth_headers(
+            tenant_zitadel_org_id=tenant_b.zitadel_org_id, role="owner"
+        )
+        cross_tenant = await auth_client.get(
+            f"/api/v1/scan_runs/{run.id}/changes", headers=other_tenant_headers
+        )
+        assert cross_tenant.status_code == 404
+
+    async def test_queued_run_returns_409(
+        self, auth_client, db_session, two_tenants, auth_headers
+    ):
+        from app.core.repository import ScanRunRepository, TargetRepository
+
+        tenant_a, _ = two_tenants
+        target = await TargetRepository(db_session, tenant_id=tenant_a.id).create(
+            kind="domain",
+            value="queued-changes.example.com",
+            value_normalized="queued-changes.example.com",
+            is_active=True,
+        )
+        run = await ScanRunRepository(db_session, tenant_id=tenant_a.id).create(
+            target_id=target.id, max_attempts=3
+        )
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="viewer"
+        )
+        resp = await auth_client.get(
+            f"/api/v1/scan_runs/{run.id}/changes", headers=headers
+        )
+        assert resp.status_code == 409
+        assert resp.headers["content-type"].startswith("application/problem+json")
+
+    async def test_rejects_unknown_query_param_and_invalid_cursor(
+        self, auth_client, db_session, two_tenants, auth_headers
+    ):
+        from app.core.repository import ScanRunRepository, TargetRepository
+
+        tenant_a, _ = two_tenants
+        target = await TargetRepository(db_session, tenant_id=tenant_a.id).create(
+            kind="domain",
+            value="cursor-changes.example.com",
+            value_normalized="cursor-changes.example.com",
+            is_active=True,
+        )
+        run = await ScanRunRepository(db_session, tenant_id=tenant_a.id).create(
+            target_id=target.id, max_attempts=3
+        )
+        run.status = "succeeded"
+        db_session.add(run)
+        await db_session.commit()
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+
+        unknown = await auth_client.get(
+            f"/api/v1/scan_runs/{run.id}/changes?bogus=1", headers=headers
+        )
+        assert unknown.status_code == 400
+
+        size = await auth_client.get(
+            f"/api/v1/scan_runs/{run.id}/changes?size=0", headers=headers
+        )
+        assert size.status_code == 400
+
+        cursor = await auth_client.get(
+            f"/api/v1/scan_runs/{run.id}/changes?cursor=not-a-cursor",
+            headers=headers,
+        )
+        assert cursor.status_code == 422

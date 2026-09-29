@@ -132,3 +132,32 @@ class FindingResource(BaseModel):
 class FindingCollectionDocument(BaseModel):
     data: list[FindingResource]
     links: CollectionLinks
+
+
+FindingChangeClassification = Literal[
+    "new", "reappeared", "resolved", "unchanged", "mutated"
+]
+
+
+class ScanRunChangeCounts(BaseModel):
+    new: int = 0
+    reappeared: int = 0
+    resolved: int = 0
+    unchanged: int = 0
+    mutated: int = 0
+
+
+class ScanRunChangesAttributes(BaseModel):
+    counts: ScanRunChangeCounts
+    findings: dict[FindingChangeClassification, list[FindingResource]]
+
+
+class ScanRunChangesResource(BaseModel):
+    type: Literal["scan_run_changes"] = "scan_run_changes"
+    id: UUID
+    attributes: ScanRunChangesAttributes
+
+
+class ScanRunChangesDocument(BaseModel):
+    data: ScanRunChangesResource
+    links: CollectionLinks

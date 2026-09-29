@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from sqlalchemy import literal_column, select, tuple_, update
+from sqlalchemy import delete, func, literal_column, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,14 @@ from app.core.fingerprint import (
     normalize_finding_value,
 )
 from app.core.jobs.states import ScanRunStatus, transition_status
-from app.core.models import Finding, ScanRun, Target, Tenant, TenantOwnedMixin
+from app.core.models import (
+    Finding,
+    ScanRun,
+    ScanRunFinding,
+    Target,
+    Tenant,
+    TenantOwnedMixin,
+)
 from app.core.pagination import decode_cursor, encode_cursor
 
 T = TypeVar("T", bound=TenantOwnedMixin)
@@ -463,6 +470,22 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
                 :MAX_SCAN_RUN_ERROR_MESSAGE_LENGTH
             ]
 
+    async def get_previous_successful(
+        self, *, target_id: UUID, excluding_run_id: UUID
+    ) -> ScanRun | None:
+        statement = (
+            self._scope_select(select(ScanRun))
+            .where(
+                ScanRun.target_id == target_id,
+                ScanRun.id != excluding_run_id,
+                ScanRun.status == ScanRunStatus.SUCCEEDED.value,
+            )
+            .order_by(ScanRun.created_at.desc(), ScanRun.id.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none()
+
     async def create(self, **attributes: Any) -> ScanRun:
         if attributes.get("status", ScanRunStatus.QUEUED) != ScanRunStatus.QUEUED:
             raise ValueError("Scan runs must be created in the queued state.")
@@ -671,6 +694,44 @@ class FindingRepository(TenantScopedRepository[Finding]):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_fingerprints(
+        self, *, target_id: UUID, fingerprints: set[str]
+    ) -> dict[str, Finding]:
+        if not fingerprints:
+            return {}
+        statement = self._scope_select(select(Finding)).where(
+            Finding.target_id == target_id,
+            Finding.fingerprint.in_(fingerprints),
+        )
+        result = await self._session.execute(statement)
+        return {finding.fingerprint: finding for finding in result.scalars().all()}
+
+    async def list_active_for_target(
+        self, *, target_id: UUID, kinds: set[FindingKind], excluding_run_id: UUID
+    ) -> Sequence[Finding]:
+        if not kinds:
+            return []
+        statement = self._scope_select(select(Finding)).where(
+            Finding.target_id == target_id,
+            Finding.status == "active",
+            Finding.kind.in_([FindingKind(kind).value for kind in kinds]),
+            or_(
+                Finding.last_seen_run_id.is_(None),
+                Finding.last_seen_run_id != excluding_run_id,
+            ),
+        )
+        result = await self._session.execute(statement)
+        return result.scalars().all()
+
+    async def list_seen_in_run(self, run_id: UUID) -> Sequence[Finding]:
+        statement = self._scope_select(
+            select(Finding).execution_options(populate_existing=True)
+        ).where(
+            Finding.last_seen_run_id == run_id
+        )
+        result = await self._session.execute(statement)
+        return result.scalars().all()
+
     async def upsert_discovery(
         self,
         *,
@@ -834,6 +895,105 @@ class FindingRepository(TenantScopedRepository[Finding]):
             raise
         return total, new_count
 
+    async def persist_discovery_run(
+        self,
+        *,
+        target_id: UUID,
+        run_id: UUID,
+        items: Sequence[dict[str, Any]],
+        kinds: set[FindingKind],
+        degraded: bool = False,
+    ) -> int:
+        """Upsert a scanner's findings and persist its generic run-to-run diff."""
+        fingerprints = {
+            compute_fingerprint(
+                FindingKind(item["kind"]),
+                target_id,
+                normalize_finding_value(FindingKind(item["kind"]), item["value"]),
+            )
+            for item in items
+        }
+        existing = await self.get_by_fingerprints(
+            target_id=target_id, fingerprints=fingerprints
+        )
+        existing_state = {
+            fingerprint: {
+                "status": finding.status,
+                "details": dict(finding.details or {}),
+            }
+            for fingerprint, finding in existing.items()
+        }
+        run_finding_repository = ScanRunFindingRepository(
+            self._session, tenant_id=self.tenant_id
+        )
+        previous_run = await ScanRunRepository(
+            self._session, tenant_id=self.tenant_id
+        ).get_previous_successful(target_id=target_id, excluding_run_id=run_id)
+        previous_by_fingerprint: dict[str, dict[str, Any]] = {}
+        if previous_run is not None:
+            for snapshot in await run_finding_repository.list_for_run(previous_run.id):
+                fingerprint = _snapshot_fingerprint(snapshot)
+                attributes = _snapshot_attributes(snapshot)
+                if fingerprint and attributes is not None:
+                    previous_by_fingerprint[fingerprint] = attributes
+
+        await self.upsert_discovery_batch(items)
+        observed = await self.list_seen_in_run(run_id)
+        missing = await self.list_active_for_target(
+            target_id=target_id,
+            kinds=kinds,
+            excluding_run_id=run_id,
+        )
+        if not degraded:
+            await self.resolve_missing_discoveries(
+                target_id=target_id,
+                seen_fingerprints=fingerprints,
+                kinds=kinds,
+            )
+
+        snapshots = []
+        for finding in observed:
+            previous = existing_state.get(finding.fingerprint)
+            if previous is None:
+                classification = "new"
+            elif previous["status"] == "resolved":
+                classification = "reappeared"
+            else:
+                previous_details = _snapshot_attributes_details(
+                    previous_by_fingerprint.get(finding.fingerprint)
+                )
+                if previous_details is None:
+                    previous_details = previous["details"]
+                classification = (
+                    "unchanged"
+                    if dict(previous_details) == dict(finding.details or {})
+                    else "mutated"
+                )
+            snapshots.append(
+                {
+                    "finding_id": finding.id,
+                    "classification": classification,
+                    "finding_snapshot": _finding_snapshot(finding),
+                }
+            )
+
+        for finding in missing:
+            snapshots.append(
+                {
+                    "finding_id": finding.id,
+                    "classification": "unchanged" if degraded else "resolved",
+                    "finding_snapshot": _finding_snapshot(
+                        finding, status="active" if degraded else "resolved"
+                    ),
+                }
+            )
+        await run_finding_repository.add_snapshots(
+            scan_run_id=run_id, snapshots=snapshots
+        )
+        return sum(
+            snapshot["classification"] == "new" for snapshot in snapshots
+        )
+
     async def resolve_missing_discoveries(
         self,
         *,
@@ -919,3 +1079,149 @@ class FindingRepository(TenantScopedRepository[Finding]):
         cursor: str | None = None,
     ) -> tuple[Sequence[Finding], str | None]:
         return await self.list(limit=limit, cursor=cursor, run_id=run_id)
+
+
+class ScanRunFindingRepository(TenantScopedRepository[ScanRunFinding]):
+    """Tenant-scoped repository for immutable scan-run finding snapshots."""
+
+    model = ScanRunFinding
+
+    def _cursor_columns(self) -> tuple[Any, ...]:
+        return CreatedAtIdCursor.columns(self.model)
+
+    def _encode_cursor(self, entity: ScanRunFinding) -> str:
+        return CreatedAtIdCursor.encode(entity)
+
+    def _decode_cursor(self, cursor: str) -> tuple[datetime, UUID]:
+        return CreatedAtIdCursor.decode(cursor)
+
+    async def add_snapshots(
+        self, *, scan_run_id: UUID, snapshots: Sequence[dict[str, Any]]
+    ) -> None:
+        await self._session.execute(
+            delete(ScanRunFinding).where(
+                ScanRunFinding.tenant_id == self.tenant_id,
+                ScanRunFinding.scan_run_id == scan_run_id,
+            )
+        )
+        if snapshots:
+            self._session.add_all(
+                [
+                    ScanRunFinding(
+                        tenant_id=self.tenant_id,
+                        scan_run_id=scan_run_id,
+                        finding_id=snapshot["finding_id"],
+                        classification=snapshot["classification"],
+                        finding_snapshot=snapshot["finding_snapshot"],
+                    )
+                    for snapshot in snapshots
+                ]
+            )
+        await self._session.commit()
+
+    async def list_for_run(self, scan_run_id: UUID) -> Sequence[ScanRunFinding]:
+        statement = self._scope_select(select(ScanRunFinding)).where(
+            ScanRunFinding.scan_run_id == scan_run_id
+        )
+        result = await self._session.execute(statement)
+        return result.scalars().all()
+
+    async def list_changes(
+        self, *, scan_run_id: UUID, limit: int, cursor: str | None
+    ) -> tuple[Sequence[ScanRunFinding], dict[str, int], str | None]:
+        counts = {
+            "new": 0,
+            "reappeared": 0,
+            "resolved": 0,
+            "unchanged": 0,
+            "mutated": 0,
+        }
+        base = self._scope_select(select(ScanRunFinding)).where(
+            ScanRunFinding.scan_run_id == scan_run_id
+        )
+        count_statement = (
+            select(ScanRunFinding.classification, func.count())
+            .where(
+                ScanRunFinding.tenant_id == self.tenant_id,
+                ScanRunFinding.scan_run_id == scan_run_id,
+            )
+            .group_by(ScanRunFinding.classification)
+        )
+        count_result = await self._session.execute(count_statement)
+        counts.update(dict(count_result.all()))
+
+        columns = self._cursor_columns()
+        statement = base.order_by(*columns)
+        if cursor is not None:
+            values = self._decode_cursor(cursor)
+            statement = statement.where(tuple_(*columns) > tuple(values))
+        result = await self._session.execute(statement.limit(limit + 1))
+        items = list(result.scalars().all())
+        if len(items) <= limit:
+            return items, counts, None
+        items = items[:limit]
+        return items, counts, self._encode_cursor(items[-1])
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_attributes(snapshot: ScanRunFinding) -> dict[str, Any] | None:
+    payload = snapshot.finding_snapshot
+    if not isinstance(payload, dict):
+        return None
+    attributes = payload.get("attributes")
+    return attributes if isinstance(attributes, dict) else None
+
+
+def _snapshot_fingerprint(snapshot: ScanRunFinding) -> str | None:
+    attributes = _snapshot_attributes(snapshot)
+    fingerprint = None if attributes is None else attributes.get("fingerprint")
+    return fingerprint if isinstance(fingerprint, str) else None
+
+
+def _snapshot_attributes_details(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
+    if attributes is None:
+        return None
+    details = attributes.get("details")
+    return dict(details) if isinstance(details, dict) else None
+
+
+def _finding_snapshot(finding: Finding, *, status: str | None = None) -> dict[str, Any]:
+    """Serialise a Finding into the JSON:API shape stored as an immutable snapshot.
+
+    The snapshot is the source of truth for the /changes endpoint — it captures
+    the finding's state at the moment the scan run completed.  ``FindingResource``
+    (pipeline/schemas.py) reads it back via ``model_validate(snapshot)``, so the
+    shape must match exactly.
+
+    ``status`` overrides the finding's current persisted status.  The only caller
+    that passes this is the resolved-findings branch of ``persist_discovery_run``,
+    which writes a snapshot that shows the finding as ``resolved`` even though the
+    DB update may not yet be visible to the ORM object.
+    """
+    return {
+        "type": "findings",
+        "id": str(finding.id),
+        "attributes": {
+            "target_id": str(finding.target_id),
+            "last_seen_run_id": (
+                str(finding.last_seen_run_id) if finding.last_seen_run_id else None
+            ),
+            "kind": str(finding.kind),
+            "value": finding.value,
+            "value_normalized": finding.value_normalized,
+            "fingerprint": finding.fingerprint,
+            "severity": finding.severity,
+            "raw_severity": finding.raw_severity,
+            "status": status if status is not None else finding.status,
+            "first_seen_at": finding.first_seen_at.isoformat(),
+            "last_seen_at": finding.last_seen_at.isoformat(),
+            "times_seen": finding.times_seen,
+            "details": dict(finding.details),
+            "created_at": finding.created_at.isoformat(),
+            "updated_at": finding.updated_at.isoformat(),
+        },
+    }
