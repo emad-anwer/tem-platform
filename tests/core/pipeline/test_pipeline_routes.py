@@ -530,7 +530,7 @@ class TestGetScanRunChanges:
         assert "changes-isolated.example.com" not in resp.text
 
     async def test_queued_run_changes_returns_409(
-        self, auth_client, two_tenants, auth_headers
+        self, auth_client, two_tenants, auth_headers, fake_arq_pool
     ):
         tenant_a, _ = two_tenants
         headers = auth_headers(
@@ -551,7 +551,7 @@ class TestGetScanRunChanges:
         assert resp.headers["content-type"].startswith("application/problem+json")
 
     async def test_rejects_unknown_query_param(
-        self, auth_client, two_tenants, auth_headers
+        self, auth_client, two_tenants, auth_headers, fake_arq_pool
     ):
         tenant_a, _ = two_tenants
         headers = auth_headers(
