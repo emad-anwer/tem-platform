@@ -55,11 +55,10 @@ def scan_scope(request, monkeypatch):
         "lab"
     ) or request.node.get_closest_marker("lab_host")
     if not uses_real_lab:
-        monkeypatch.setattr(
-            "app.core.scope.resolve_addresses", _test_resolve_addresses
-        )
+        monkeypatch.setattr("app.core.scope.resolve_addresses", _test_resolve_addresses)
     yield
     get_settings.cache_clear()
+
 
 class FakeJWKSCache(JWKSCache):
     """A JWKS cache pre-loaded from fixture data — no HTTP, proper __init__."""

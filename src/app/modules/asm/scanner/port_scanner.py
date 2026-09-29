@@ -13,8 +13,8 @@ from app.core.scope import (
     IPAddress,
     ScanScope,
     ScopeViolationError,
-    get_scope,
     check_scope,
+    get_scope,
     scoped_open_connection,
 )
 from app.modules.asm.scanner.ports import CURATED_TCP_PORTS
@@ -170,7 +170,7 @@ async def scan_host(
         raise ValueError("connect timeout must be positive")
 
     active_scope = get_scope() if scope is None else scope
-    decision = await check_scope(host, scope=active_scope) 
+    decision = await check_scope(host, scope=active_scope)
     if not decision.addresses:
         raise ValueError(f"'{host}' is a network, not a host; scan hosts only")
 
@@ -179,7 +179,7 @@ async def scan_host(
     tally = _Tally()
 
     async def probe(port: int) -> PortResult:
-        async with semaphore: 
+        async with semaphore:
             tally.enter()
             try:
                 return await _attempt(

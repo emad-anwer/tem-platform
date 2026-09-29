@@ -65,7 +65,7 @@ async def record_port_scan(
         resolved = await repo.resolve_missing_discoveries(
             target_id=target_id,
             seen_fingerprints=seen,
-            kinds={FindingKind.OPEN_PORT},  
+            kinds={FindingKind.OPEN_PORT},
         )
     return PortFindingsSummary(total=total, new=new, resolved=resolved)
 

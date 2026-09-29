@@ -12,9 +12,15 @@ from app.modules.asm.scanner.port_scanner import PortResult, PortScanReport, Por
 
 def _report(results: list[PortResult]) -> PortScanReport:
     return PortScanReport(
-        host="lab-nginx", addresses=(), results=tuple(results), concurrency=50,
-        connect_timeout_seconds=1.5, duration_seconds=0.1, max_in_flight=3,
-        sockets_opened=1, sockets_closed=1,
+        host="lab-nginx",
+        addresses=(),
+        results=tuple(results),
+        concurrency=50,
+        connect_timeout_seconds=1.5,
+        duration_seconds=0.1,
+        max_in_flight=3,
+        sockets_opened=1,
+        sockets_closed=1,
     )
 
 
@@ -26,12 +32,17 @@ async def test_open_ports_become_kind_scoped_open_port_findings():
     target_id, run_id = uuid4(), uuid4()
 
     summary = await record_port_scan(
-        repo, target_id=target_id, run_id=run_id, host="lab-nginx",
-        report=_report([
-            PortResult(80, PortState.OPEN),
-            PortResult(81, PortState.CLOSED),
-            PortResult(82, PortState.FILTERED, "timeout"),
-        ]),
+        repo,
+        target_id=target_id,
+        run_id=run_id,
+        host="lab-nginx",
+        report=_report(
+            [
+                PortResult(80, PortState.OPEN),
+                PortResult(81, PortState.CLOSED),
+                PortResult(82, PortState.FILTERED, "timeout"),
+            ]
+        ),
     )
 
     (items,), _ = repo.upsert_discovery_batch.call_args
@@ -53,7 +64,12 @@ async def test_fully_out_of_scope_scan_does_not_resolve_anything():
     repo = AsyncMock()
     repo.upsert_discovery_batch.return_value = (0, 0)
     await record_port_scan(
-        repo, target_id=uuid4(), run_id=uuid4(), host="127.0.0.1",
-        report=_report([PortResult(22, PortState.OUT_OF_SCOPE, "loopback_port_not_allowed")]),
+        repo,
+        target_id=uuid4(),
+        run_id=uuid4(),
+        host="127.0.0.1",
+        report=_report(
+            [PortResult(22, PortState.OUT_OF_SCOPE, "loopback_port_not_allowed")]
+        ),
     )
     repo.resolve_missing_discoveries.assert_not_called()

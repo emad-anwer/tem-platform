@@ -27,9 +27,7 @@ async def test_open_closed_and_out_of_scope_over_real_sockets():
     closed_port = _free_port()  # bound then released: nothing listens
     unlisted_port = _free_port()  # loopback but not in the allowlist
 
-    scope = ScanScope.parse(
-        [f"127.0.0.1:{open_port}", f"127.0.0.1:{closed_port}"]
-    )
+    scope = ScanScope.parse([f"127.0.0.1:{open_port}", f"127.0.0.1:{closed_port}"])
     try:
         report = await scan_host(
             "127.0.0.1",

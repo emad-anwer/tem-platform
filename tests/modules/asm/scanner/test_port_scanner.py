@@ -10,15 +10,15 @@ from typing import Literal
 import pytest
 
 from app.core.scope import ScanScope
-from app.modules.asm.scanner.ports import CURATED_TCP_PORTS
 from app.modules.asm.scanner.port_scanner import PortState, scan_host
+from app.modules.asm.scanner.ports import CURATED_TCP_PORTS
 
 Behavior = Literal["open", "closed", "silent", "error"]
 SCOPE = ScanScope.parse(["127.0.0.1:1"])  # host literal passes the host-level check
 
 
 class FakeWriter:
-    def __init__(self, net: "FakeNet", *, fail_wait_closed: bool = False) -> None:
+    def __init__(self, net: FakeNet, *, fail_wait_closed: bool = False) -> None:
         self._net = net
         self._fail = fail_wait_closed
         self.closed = False
@@ -37,8 +37,14 @@ class FakeWriter:
 class FakeNet:
     """Fake connect() that measures true concurrency independently of the scanner."""
 
-    def __init__(self, behaviors: dict[int, Behavior], *, default: Behavior = "closed",
-                 delay: float = 0.01, fail_wait_closed: bool = False) -> None:
+    def __init__(
+        self,
+        behaviors: dict[int, Behavior],
+        *,
+        default: Behavior = "closed",
+        delay: float = 0.01,
+        fail_wait_closed: bool = False,
+    ) -> None:
         self.behaviors = behaviors
         self.default = default
         self.delay = delay
@@ -69,8 +75,12 @@ class FakeNet:
 
 def _scan(net: FakeNet, ports, **kw):
     return scan_host(
-        "127.0.0.1", ports=ports, scope=SCOPE, connect=net.connect,
-        connect_timeout_seconds=kw.pop("timeout", 0.5), **kw,
+        "127.0.0.1",
+        ports=ports,
+        scope=SCOPE,
+        connect=net.connect,
+        connect_timeout_seconds=kw.pop("timeout", 0.5),
+        **kw,
     )
 
 
@@ -147,9 +157,7 @@ async def test_empty_allowlist_refuses_before_any_connection():
 
     net = FakeNet({})
     with pytest.raises(ScopeViolationError):
-        await scan_host(
-            "127.0.0.1", ports=[80], scope=ScanScope(), connect=net.connect
-        )
+        await scan_host("127.0.0.1", ports=[80], scope=ScanScope(), connect=net.connect)
     assert net.opened_writers == 0 and net.live == 0
 
 
