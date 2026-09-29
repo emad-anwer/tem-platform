@@ -613,17 +613,15 @@ class TestScanRunChanges:
         )
 
         tenant_a, tenant_b = two_tenants
-        target = await TargetRepository(
-            db_session, tenant_id=tenant_a.id
-        ).create(
+        target = await TargetRepository(db_session, tenant_id=tenant_a.id).create(
             kind="domain",
             value="changes.example.com",
             value_normalized="changes.example.com",
             is_active=True,
         )
-        run = await ScanRunRepository(
-            db_session, tenant_id=tenant_a.id
-        ).create(target_id=target.id, max_attempts=3)
+        run = await ScanRunRepository(db_session, tenant_id=tenant_a.id).create(
+            target_id=target.id, max_attempts=3
+        )
         run.status = "succeeded"
         db_session.add(run)
         await db_session.commit()
@@ -659,9 +657,9 @@ class TestScanRunChanges:
                     },
                 }
             )
-        await ScanRunFindingRepository(
-            db_session, tenant_id=tenant_a.id
-        ).add_snapshots(scan_run_id=run.id, snapshots=snapshots)
+        await ScanRunFindingRepository(db_session, tenant_id=tenant_a.id).add_snapshots(
+            scan_run_id=run.id, snapshots=snapshots
+        )
 
         viewer_headers = auth_headers(
             tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="viewer"

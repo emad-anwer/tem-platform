@@ -726,9 +726,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
     async def list_seen_in_run(self, run_id: UUID) -> Sequence[Finding]:
         statement = self._scope_select(
             select(Finding).execution_options(populate_existing=True)
-        ).where(
-            Finding.last_seen_run_id == run_id
-        )
+        ).where(Finding.last_seen_run_id == run_id)
         result = await self._session.execute(statement)
         return result.scalars().all()
 
@@ -990,9 +988,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
         await run_finding_repository.add_snapshots(
             scan_run_id=run_id, snapshots=snapshots
         )
-        return sum(
-            snapshot["classification"] == "new" for snapshot in snapshots
-        )
+        return sum(snapshot["classification"] == "new" for snapshot in snapshots)
 
     async def resolve_missing_discoveries(
         self,
@@ -1182,7 +1178,9 @@ def _snapshot_fingerprint(snapshot: ScanRunFinding) -> str | None:
     return fingerprint if isinstance(fingerprint, str) else None
 
 
-def _snapshot_attributes_details(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
+def _snapshot_attributes_details(
+    attributes: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if attributes is None:
         return None
     details = attributes.get("details")

@@ -110,7 +110,10 @@ async def test_discovery_upsert_is_idempotent_and_tenant_scoped(
     assert [run.findings_count for run in run_results] == [2, 2, 2]
     run_snapshots = ScanRunFindingRepository(db_session)
     classifications = [
-        [snapshot.classification for snapshot in await run_snapshots.list_for_run(run.id)]
+        [
+            snapshot.classification
+            for snapshot in await run_snapshots.list_for_run(run.id)
+        ]
         for run in run_results
     ]
     assert [sorted(items) for items in classifications] == [
@@ -234,9 +237,7 @@ async def test_degraded_source_carries_missing_findings_as_unchanged(
     second_run = await ScanRunRepository(db_session).create(
         target_id=target.id, max_attempts=3
     )
-    await discover_domain(
-        {"db": db_session}, second_run, sources=(DegradedSource(),)
-    )
+    await discover_domain({"db": db_session}, second_run, sources=(DegradedSource(),))
     second_run.status = "succeeded"
     db_session.add(second_run)
     await db_session.commit()

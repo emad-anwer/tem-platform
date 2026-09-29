@@ -39,12 +39,8 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(
-            ["scan_run_id"], ["scan_runs.id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(
-            ["finding_id"], ["findings.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["scan_run_id"], ["scan_runs.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["finding_id"], ["findings.id"], ondelete="SET NULL"),
         sa.UniqueConstraint(
             "tenant_id",
             "scan_run_id",
@@ -81,5 +77,7 @@ def downgrade() -> None:
         "ix_scan_run_findings_tenant_run_classification",
         table_name="scan_run_findings",
     )
-    op.drop_index(op.f("ix_scan_run_findings_tenant_id"), table_name="scan_run_findings")
+    op.drop_index(
+        op.f("ix_scan_run_findings_tenant_id"), table_name="scan_run_findings"
+    )
     op.drop_table("scan_run_findings")

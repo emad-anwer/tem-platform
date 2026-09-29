@@ -17,8 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.job_context import tenant_job
 from app.core.fingerprint import (
     FindingKind,
-    compute_fingerprint,
-    normalize_finding_value,
 )
 from app.core.jobs.lifecycle import execute_scan_run
 from app.core.jobs.timeouts import outbound_http_timeout

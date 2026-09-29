@@ -88,7 +88,9 @@ async def test_first_run_all_findings_are_new(db_session, two_tenants):
     principal = _owner(tenant_a.id)
     set_current_principal(principal)
 
-    target = await _make_target(db_session, tenant_id=tenant_a.id, name="first-run.example.com")
+    target = await _make_target(
+        db_session, tenant_id=tenant_a.id, name="first-run.example.com"
+    )
     run = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
 
     findings_repo = FindingRepository(db_session, tenant_id=tenant_a.id)
@@ -121,7 +123,9 @@ async def test_two_identical_runs_all_unchanged(db_session, two_tenants):
     principal = _owner(tenant_a.id)
     set_current_principal(principal)
 
-    target = await _make_target(db_session, tenant_id=tenant_a.id, name="unchanged.example.com")
+    target = await _make_target(
+        db_session, tenant_id=tenant_a.id, name="unchanged.example.com"
+    )
     run1 = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
 
     findings_repo = FindingRepository(db_session, tenant_id=tenant_a.id)
@@ -170,7 +174,9 @@ async def test_missing_finding_resolved_others_unchanged(db_session, two_tenants
     principal = _owner(tenant_a.id)
     set_current_principal(principal)
 
-    target = await _make_target(db_session, tenant_id=tenant_a.id, name="resolve.example.com")
+    target = await _make_target(
+        db_session, tenant_id=tenant_a.id, name="resolve.example.com"
+    )
     run1 = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
 
     findings_repo = FindingRepository(db_session, tenant_id=tenant_a.id)
@@ -357,7 +363,10 @@ async def test_diff_skips_failed_runs_uses_last_successful(db_session, two_tenan
     run2 = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
     run2_claimed = await run_repo.claim_for_job(run2.id, job_id=str(uuid.uuid4()))
     await run_repo.fail(
-        run2_claimed.id, error_kind="terminal", error_message="worker crashed", attempt=1
+        run2_claimed.id,
+        error_kind="terminal",
+        error_message="worker crashed",
+        attempt=1,
     )
 
     # Run 3 — succeeds again with the same finding
