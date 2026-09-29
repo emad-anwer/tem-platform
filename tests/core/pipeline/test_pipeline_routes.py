@@ -492,6 +492,84 @@ class TestGetScanRun:
 
         assert resp.status_code == 404
 
+
+class TestGetScanRunChanges:
+    async def test_cross_tenant_changes_returns_404(
+        self, auth_client, two_tenants, auth_headers, fake_arq_pool
+    ):
+        """Cross-tenant access to /scan_runs/{id}/changes must not leak change data.
+
+        Mirrors TestGetScanRun.test_cross_tenant_scan_run_returns_404: the
+        caller gets a 404 (resource not visible to them), never a 200 with
+        another tenant's finding snapshots, and never a 403 that would hint
+        the run exists for someone else.
+        """
+        tenant_a, tenant_b = two_tenants
+        headers_a = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        headers_b = auth_headers(
+            tenant_zitadel_org_id=tenant_b.zitadel_org_id, role="owner"
+        )
+        target = await _create_target(
+            auth_client, headers_a, value="changes-isolated.example.com"
+        )
+        start_resp = await auth_client.post(
+            f"/api/v1/targets/{target['id']}/scans", headers=headers_a
+        )
+        run_id = start_resp.json()["data"]["id"]
+
+        resp = await auth_client.get(
+            f"/api/v1/scan_runs/{run_id}/changes", headers=headers_b
+        )
+
+        assert resp.status_code == 404
+        assert resp.headers["content-type"].startswith("application/problem+json")
+        # No cross-tenant data leak — the other tenant's target value must not
+        # appear anywhere in the error body.
+        assert "changes-isolated.example.com" not in resp.text
+
+    async def test_queued_run_changes_returns_409(
+        self, auth_client, two_tenants, auth_headers
+    ):
+        tenant_a, _ = two_tenants
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        target = await _create_target(
+            auth_client, headers, value="queued-changes-route.example.com"
+        )
+        start_resp = await auth_client.post(
+            f"/api/v1/targets/{target['id']}/scans", headers=headers
+        )
+        run_id = start_resp.json()["data"]["id"]
+
+        resp = await auth_client.get(
+            f"/api/v1/scan_runs/{run_id}/changes", headers=headers
+        )
+        assert resp.status_code == 409
+        assert resp.headers["content-type"].startswith("application/problem+json")
+
+    async def test_rejects_unknown_query_param(
+        self, auth_client, two_tenants, auth_headers
+    ):
+        tenant_a, _ = two_tenants
+        headers = auth_headers(
+            tenant_zitadel_org_id=tenant_a.zitadel_org_id, role="owner"
+        )
+        target = await _create_target(
+            auth_client, headers, value="changes-params.example.com"
+        )
+        start_resp = await auth_client.post(
+            f"/api/v1/targets/{target['id']}/scans", headers=headers
+        )
+        run_id = start_resp.json()["data"]["id"]
+
+        resp = await auth_client.get(
+            f"/api/v1/scan_runs/{run_id}/changes?bogus=1", headers=headers
+        )
+        assert resp.status_code == 400
+
     async def test_viewer_can_read_scan_run(
         self, auth_client, two_tenants, auth_headers, fake_arq_pool
     ):

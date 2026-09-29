@@ -48,6 +48,7 @@ DATA_ROUTES: list[tuple[str, str]] = [
     ("GET", "/api/v1/tenants/{tenant_id}"),
     ("GET", "/api/v1/findings"),
     ("GET", "/api/v1/scan_runs/{scan_run_id}"),
+    ("GET", "/api/v1/scan_runs/{scan_run_id}/changes"),
     ("GET", "/api/v1/targets"),
     ("GET", "/api/v1/targets/{target_id}"),
     ("POST", "/api/v1/targets"),
