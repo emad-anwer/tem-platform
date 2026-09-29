@@ -1,7 +1,7 @@
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import PostgresDsn, RedisDsn
+from pydantic import Field, PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # `app.core.scope`). Default deny: empty scans nothing. Configuration,
     # not per-tenant data — per-tenant scope is week 6.
     scan_scope_allowlist: str = ""
+
+    # Scanner egress is a shared target budget, enforced in Redis. Override
+    # keys are ``host`` or ``operation:host`` (for example ``dns:resolver``).
+    scan_rate_limit_default_per_second: int = Field(default=5, gt=0)
+    scan_rate_limit_overrides: dict[str, int] = Field(default_factory=dict)
+    scan_rate_limit_max_wait_seconds: float = Field(default=10.0, ge=0)
 
     # Fail-closed: FastAPI debug tracebacks leak source code and absolute
     # paths on unhandled errors (OWASP A05), so debug may only be enabled

@@ -64,6 +64,7 @@ import structlog
 
 from app.core.errors import ForbiddenError
 from app.core.pipeline.validation import normalize_hostname
+from app.core.rate_limit import SlidingWindowRateLimiter, configured_rate_limiter
 
 logger = structlog.get_logger(__name__)
 
@@ -325,10 +326,12 @@ async def resolve_addresses(hostname: str) -> list[IPAddress]:
     :data:`ScopeReason.RESOLUTION_FAILED`.
     """
     resolver = dns.asyncresolver.Resolver()
+    limiter = configured_rate_limiter()
     found: dict[IPAddress, None] = {}
 
     async def resolve_type(record_type: str) -> None:
         try:
+            await limiter.wait_for_permission("dns", operation="dns")
             answer = await resolver.resolve(
                 hostname, record_type, lifetime=DNS_TIMEOUT_SECONDS
             )
@@ -588,6 +591,7 @@ async def scoped_open_connection(
     *,
     scope: ScanScope | None = None,
     resolve: ResolveFn | None = None,
+    limiter: SlidingWindowRateLimiter | None = None,
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     """Check scope, then connect — to the address that was checked.
 
@@ -598,6 +602,9 @@ async def scoped_open_connection(
     owns the timeout: wrap the call in ``async with asyncio.timeout(...)``.
     """
     decision = await check_scope(host, port=port, scope=scope, resolve=resolve)
+    await (limiter or configured_rate_limiter()).wait_for_permission(
+        decision.host, operation="tcp"
+    )
     if not decision.addresses:
         raise _refuse(
             ScopeReason.RESOLUTION_FAILED,
@@ -637,12 +644,14 @@ class ScopedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         scope: ScanScope | None = None,
         resolve: ResolveFn | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        limiter: SlidingWindowRateLimiter | None = None,
     ) -> None:
         self._scope = scope
         self._resolve = resolve
         self._transport = (
             transport if transport is not None else httpx.AsyncHTTPTransport()
         )
+        self._limiter = limiter or configured_rate_limiter()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         url = request.url
@@ -650,6 +659,7 @@ class ScopedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         decision = await check_scope(
             url.host, port=port, scope=self._scope, resolve=self._resolve
         )
+        await self._limiter.wait_for_permission(decision.host, operation="http")
         _pin_request_to_checked_address(request, decision)
         return await self._transport.handle_async_request(request)
 
@@ -680,6 +690,7 @@ def scoped_http_client(
     *,
     scope: ScanScope | None = None,
     resolve: ResolveFn | None = None,
+    limiter: SlidingWindowRateLimiter | None = None,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """An ``httpx`` client that cannot reach an out-of-scope host.
@@ -690,6 +701,8 @@ def scoped_http_client(
     refused at the connection layer, and refused *before* a socket exists.
     """
     return httpx.AsyncClient(
-        transport=ScopedAsyncHTTPTransport(scope=scope, resolve=resolve),
+        transport=ScopedAsyncHTTPTransport(
+            scope=scope, resolve=resolve, limiter=limiter
+        ),
         **kwargs,
     )

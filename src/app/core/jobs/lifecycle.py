@@ -1,6 +1,7 @@
 import asyncio
 import random
 import re
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -11,10 +12,12 @@ from httpx import HTTPStatusError, TimeoutException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import ScanRun
+from app.core.rate_limit import RateLimitWaitCapped
 from app.core.repository import ScanRunRepository
 from app.core.scope import ScopeViolationError
 
 MAX_FAILURE_MESSAGE_LENGTH = 2000
+RATE_LIMIT_DEADLINE_MARGIN_SECONDS = 1.0
 _RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
 _SECRET_PATTERN = re.compile(
     r"(?i)(authorization|token|password|secret|api[_-]?key|connection(?:string|_string))"
@@ -32,7 +35,7 @@ class TerminalJobError(RuntimeError):
 
 def classify_failure(error: BaseException) -> str:
     """Classify known transient failures without exposing their text."""
-    if isinstance(error, RetryableJobError | TimeoutException):
+    if isinstance(error, RetryableJobError | TimeoutException | RateLimitWaitCapped):
         return "retryable"
     if isinstance(error, HTTPStatusError):
         return (
@@ -100,6 +103,11 @@ async def execute_scan_run(
 
     try:
         async with asyncio.timeout(job_timeout):
+            # Connection layers remain ARQ-agnostic.  Work supplies this
+            # budget to them so they can defer before ARQ's hard timeout.
+            ctx["scan_deadline_monotonic"] = (
+                time.monotonic() + job_timeout - RATE_LIMIT_DEADLINE_MARGIN_SECONDS
+            )
             await work(ctx, run)
     except Exception as error:  # noqa: BLE001 - lifecycle must persist every job failure.
         error_kind = classify_failure(error)

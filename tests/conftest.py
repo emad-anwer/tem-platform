@@ -40,6 +40,19 @@ pytest_plugins = ["auth_fixtures"]
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 
 
+@pytest.fixture(autouse=True)
+def bypass_scanner_egress_limiter(monkeypatch):
+    """Unit tests stay offline; rate-limit behaviour has its own fake Redis tests."""
+
+    class _ImmediateLimiter:
+        async def wait_for_permission(self, *args, **kwargs) -> None:
+            return None
+
+    limiter = _ImmediateLimiter()
+    monkeypatch.setattr("app.core.scope.configured_rate_limiter", lambda: limiter)
+    monkeypatch.setattr("app.core.discovery.configured_rate_limiter", lambda: limiter)
+
+
 # Offline stand-in for DNS: every test name resolves into the documentation
 # range the test allowlist covers. Never touches a resolver.
 async def _test_resolve_addresses(hostname: str) -> list[ipaddress.IPv4Address]:
