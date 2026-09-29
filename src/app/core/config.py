@@ -1,7 +1,7 @@
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import PostgresDsn, RedisDsn
+from pydantic import PostgresDsn, RedisDsn, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # org/user exists to hold platform_admin. A static secret, not a JWT.
     # Empty by default (disabled); only ever honored when environment == "dev".
     bootstrap_admin_token: str = ""
+
+    port_scan_concurrency: int = Field(default=50, ge=1, le=500)
+    port_scan_connect_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
 
     @property
     def oidc_discovery_url(self) -> str:
