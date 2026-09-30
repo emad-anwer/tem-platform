@@ -418,9 +418,11 @@ async def test_scoped_open_connection_connects_to_the_checked_address(
 
     monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
 
+    limiter = scope_module.configured_rate_limiter()
+
     with pytest.raises(ConnectionRefusedError):
         await scoped_open_connection(
-            "scan-me.example.com", 443, scope=scope, resolve=resolve
+            "scan-me.example.com", 443, scope=scope, resolve=resolve, limiter=limiter
         )
 
     # Connects to the address the scope check approved, and resolves exactly
@@ -440,12 +442,15 @@ async def test_scoped_open_connection_refuses_before_touching_a_socket(
 
     monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
 
+    limiter = scope_module.configured_rate_limiter()
+
     with pytest.raises(ScopeViolationError) as exc_info:
         await scoped_open_connection(
             "evil.example.com",
             443,
             scope=ScanScope.parse(["203.0.113.0/24"]),
             resolve=resolver("198.51.100.7"),
+            limiter=limiter,
         )
 
     assert exc_info.value.reason is ScopeReason.ADDRESS_NOT_ALLOWLISTED
