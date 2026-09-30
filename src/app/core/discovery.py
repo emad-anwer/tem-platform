@@ -90,7 +90,9 @@ class DNSSource:
                     # Immediately before the resolver's network call: this is
                     # a mechanism, not a request for callers to remember.
                     await self._limiter.wait_for_permission(
-                        "dns", operation="dns", can_wait=self._can_wait
+                        f"dns:{hostname}",
+                        operation="dns",
+                        can_wait=self._can_wait,
                     )
                     answer = await self._resolver.resolve(
                         hostname,
@@ -161,10 +163,12 @@ class CertificateTransparencySource:
 
     async def collect(self, domain: str) -> SourceResult:
         query = f"%.{domain}"
+
+        await self._limiter.wait_for_permission(
+            "crt.sh", operation="http", can_wait=self._can_wait
+        )
+
         try:
-            await self._limiter.wait_for_permission(
-                "crt.sh", operation="http", can_wait=self._can_wait
-            )
             response = await self._client.get(
                 "https://crt.sh/",
                 params={"q": query, "output": "json"},

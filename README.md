@@ -160,14 +160,6 @@ These are read from environment variables but have sensible defaults in `config.
 - `SCAN_RATE_LIMIT_OVERRIDES` (default: `{}`) — JSON host or `operation:host` overrides, e.g. `{"crt.sh": 1, "dns:dns": 10}`
 - `SCAN_RATE_LIMIT_MAX_WAIT_SECONDS` (default: `10`) — largest individual shared-budget wait
 
-Scanner egress uses a Redis Lua sliding window: all workers share the
-target's budget and no rolling one-second window admits more than its limit.
-Fixed windows were rejected because they permit a 2× boundary burst. The Lua
-script only returns allowed/wait; it never sleeps. The job layer checks its
-remaining ARQ time before waiting and retries/defers when it cannot wait
-safely. Active-port scan progress is not yet resumable, so it needs a cursor
-before a future slow active scan can be deferred without repeating work.
-
 ---
 
 ## Database & Alembic

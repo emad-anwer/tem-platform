@@ -57,8 +57,8 @@ class SlidingWindowRateLimiter:
         self,
         redis: Any | None = None,
         *,
-        default_per_second: float = 5.0,
-        overrides: Mapping[str, float] | None = None,
+        default_per_second: int = 5,
+        overrides: Mapping[str, int] | None = None,
         maximum_wait_seconds: float = 10.0,
         redis_factory: Callable[[], Awaitable[Any | None]] = get_redis,
     ) -> None:
@@ -76,7 +76,7 @@ class SlidingWindowRateLimiter:
             raise ValueError("rate-limit overrides must be greater than zero")
         self.maximum_wait_seconds = maximum_wait_seconds
 
-    def limit_for(self, host: str, operation: str = "network") -> float:
+    def limit_for(self, host: str, operation: str = "network") -> int:
         """Use ``operation:host`` first, then a host override, then default."""
         normalized = host.lower().rstrip(".")
         return self._overrides.get(
@@ -97,15 +97,11 @@ class SlidingWindowRateLimiter:
         if redis is None:
             raise RuntimeError("Redis is required before opening scanner connections")
         limit = self.limit_for(host, operation)
-        # Limits are operations/second; a fractional setting is not meaningful
-        # for an exact one-second rolling count, so reject it at the boundary.
-        if limit != int(limit):
-            raise ValueError("per-host rate limits must be whole operations per second")
         result = await redis.eval(
             _CHECK_SLIDING_WINDOW,
             1,
             self._key(host, operation),
-            int(limit),
+            limit,
             _WINDOW_MS,
             secrets.token_hex(12),
         )

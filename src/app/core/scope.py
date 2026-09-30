@@ -319,21 +319,16 @@ def _blocked_reason_detail(address: IPAddress) -> str:
 
 
 async def resolve_addresses(hostname: str) -> list[IPAddress]:
-    """Resolve a name to A/AAAA addresses. Any DNS problem raises.
-
-    Not "returns an empty list" — an unresolvable target cannot be scope
-    checked, so it is refused (fail closed) with
-    :data:`ScopeReason.RESOLUTION_FAILED`.
-    """
+    """Resolve a name to A/AAAA addresses. Any DNS problem raises."""
     resolver = dns.asyncresolver.Resolver()
-    limiter = configured_rate_limiter()
     found: dict[IPAddress, None] = {}
 
     async def resolve_type(record_type: str) -> None:
         try:
-            await limiter.wait_for_permission("dns", operation="dns")
             answer = await resolver.resolve(
-                hostname, record_type, lifetime=DNS_TIMEOUT_SECONDS
+                hostname,
+                record_type,
+                lifetime=DNS_TIMEOUT_SECONDS,
             )
         except (
             dns.resolver.NXDOMAIN,
@@ -343,12 +338,15 @@ async def resolve_addresses(hostname: str) -> list[IPAddress]:
             dns.exception.DNSException,
         ):
             return
+
         for record in answer:
             found.setdefault(ipaddress.ip_address(str(record)))
 
     await asyncio.gather(*(resolve_type(kind) for kind in ("A", "AAAA")))
+
     if not found:
         raise LookupError(f"no address records for {hostname}")
+
     return list(found)
 
 
@@ -591,7 +589,7 @@ async def scoped_open_connection(
     *,
     scope: ScanScope | None = None,
     resolve: ResolveFn | None = None,
-    limiter: SlidingWindowRateLimiter | None = None,
+    limiter: SlidingWindowRateLimiter,
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     """Check scope, then connect — to the address that was checked.
 
@@ -602,9 +600,6 @@ async def scoped_open_connection(
     owns the timeout: wrap the call in ``async with asyncio.timeout(...)``.
     """
     decision = await check_scope(host, port=port, scope=scope, resolve=resolve)
-    await (limiter or configured_rate_limiter()).wait_for_permission(
-        decision.host, operation="tcp"
-    )
     if not decision.addresses:
         raise _refuse(
             ScopeReason.RESOLUTION_FAILED,
@@ -612,6 +607,8 @@ async def scoped_open_connection(
             port=port,
             detail=f"'{host}' has no checked address to connect to",
         )
+
+    await limiter.wait_for_permission(decision.host, operation="tcp")
 
     last_error: BaseException | None = None
     for address in decision.addresses:
