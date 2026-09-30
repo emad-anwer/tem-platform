@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
@@ -23,6 +24,7 @@ from app.core.fingerprint import (
 from app.core.jobs.lifecycle import execute_scan_run
 from app.core.jobs.timeouts import outbound_http_timeout
 from app.core.models import ScanRun, Target
+from app.core.rate_limit import SlidingWindowRateLimiter, configured_rate_limiter
 from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
 from app.core.scope import check_scope
 
@@ -60,11 +62,17 @@ class DNSSource:
         resolver: dns.asyncresolver.Resolver | None = None,
         concurrency: int = DEFAULT_DNS_CONCURRENCY,
         timeout: float = 5.0,
+        limiter: SlidingWindowRateLimiter | None = None,
     ) -> None:
         self._resolver = resolver or dns.asyncresolver.Resolver()
         self._concurrency = concurrency
         self._timeout = timeout
         self._semaphore = asyncio.Semaphore(concurrency)
+        self._limiter = limiter or configured_rate_limiter()
+        self._can_wait: Callable[[float], bool] | None = None
+
+    def set_wait_guard(self, can_wait: Callable[[float], bool]) -> None:
+        self._can_wait = can_wait
 
     async def collect(self, domain: str) -> SourceResult:
         try:
@@ -79,6 +87,13 @@ class DNSSource:
         async def resolve_type(record_type: str) -> set[str]:
             async with self._semaphore:
                 try:
+                    # Immediately before the resolver's network call: this is
+                    # a mechanism, not a request for callers to remember.
+                    await self._limiter.wait_for_permission(
+                        f"dns:{hostname}",
+                        operation="dns",
+                        can_wait=self._can_wait,
+                    )
                     answer = await self._resolver.resolve(
                         hostname,
                         record_type,
@@ -136,12 +151,23 @@ class CertificateTransparencySource:
         *,
         client: httpx.AsyncClient,
         max_results: int = DEFAULT_MAX_RESULTS,
+        limiter: SlidingWindowRateLimiter | None = None,
     ) -> None:
         self._client = client
         self._max_results = max_results
+        self._limiter = limiter or configured_rate_limiter()
+        self._can_wait: Callable[[float], bool] | None = None
+
+    def set_wait_guard(self, can_wait: Callable[[float], bool]) -> None:
+        self._can_wait = can_wait
 
     async def collect(self, domain: str) -> SourceResult:
         query = f"%.{domain}"
+
+        await self._limiter.wait_for_permission(
+            "crt.sh", operation="http", can_wait=self._can_wait
+        )
+
         try:
             response = await self._client.get(
                 "https://crt.sh/",
@@ -189,6 +215,17 @@ async def discover_domain(
     await check_scope(domain)
 
     source_list = list(sources)
+    deadline = ctx.get("scan_deadline_monotonic")
+    if deadline is not None:
+        # The limiter only decides allowed/wait.  This layer owns the job's
+        # deadline and reserves a small margin for request/DB cleanup.
+        def can_wait(wait: float) -> bool:
+            return time.monotonic() + wait < deadline
+
+        for source in source_list:
+            set_guard = getattr(source, "set_wait_guard", None)
+            if set_guard is not None:
+                set_guard(can_wait)
     await _record_sources(
         ctx["db"], run.id, [source.name for source in source_list], [], None
     )

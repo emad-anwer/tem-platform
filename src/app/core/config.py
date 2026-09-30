@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # not per-tenant data — per-tenant scope is week 6.
     scan_scope_allowlist: str = ""
 
+    # Scanner egress is a shared target budget, enforced in Redis. Override
+    # keys are ``host`` or ``operation:host`` (for example ``dns:resolver``).
+    scan_rate_limit_default_per_second: int = Field(default=5, gt=0)
+    scan_rate_limit_overrides: dict[str, int] = Field(default_factory=dict)
+    scan_rate_limit_max_wait_seconds: float = Field(default=10.0, ge=0)
+
     # Fail-closed: FastAPI debug tracebacks leak source code and absolute
     # paths on unhandled errors (OWASP A05), so debug may only be enabled
     # explicitly via setting DEBUG=true. Default is False.
