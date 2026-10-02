@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -78,28 +79,30 @@ def _request(
         raise RuntimeError(f"HTTP {exc.code}: {body}") from exc
 
 
+@pytest.fixture(scope="class")
+def client() -> ZitadelClient:
+    """Provide a configured ZitadelClient (does NOT run bootstrap)."""
+    config = Config.from_env()
+    return ZitadelClient(config)
+
+
+@pytest.fixture(scope="class")
+def bootstrapped(client: ZitadelClient) -> ZitadelClient:
+    """Run a full bootstrap once before the test class."""
+    client.wait_until_ready()
+    token = client.wait_for_pat()
+    client.headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    client.bootstrap()
+    return client
+
+
 @pytest.mark.skipif(not ZITADEL_AVAILABLE, reason="Zitadel not available")
 class TestZitadelBootstrap:
     """End-to-end idempotency tests against a real Zitadel instance."""
-
-    @pytest.fixture(scope="class")
-    def client(self) -> ZitadelClient:
-        """Provide a configured ZitadelClient (does NOT run bootstrap)."""
-        config = Config.from_env()
-        return ZitadelClient(config)
-
-    @pytest.fixture(scope="class")
-    def bootstrapped(self, client: ZitadelClient) -> ZitadelClient:
-        """Run a full bootstrap once before the test class."""
-        client.wait_until_ready()
-        token = client.wait_for_pat()
-        client.headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        client.bootstrap()
-        return client
 
     # -------------------------------------------------------------------
     # 1. Fresh bootstrap (baseline correctness)
@@ -245,35 +248,56 @@ class TestZitadelBootstrap:
         assert project is not None
         project_id = project["id"]
 
-        # Find and delete the application
+        # Find and delete the application. Delete *every* app carrying the
+        # expected name: a long-lived environment can hold duplicates from
+        # older bootstrap runs, and deleting only the first would leave
+        # another behind and fail the "gone" check for reasons unrelated
+        # to reconciliation.
         apps = bootstrapped.search_applications(project_id)
-        app = next((a for a in apps if a.get("name") == APPLICATION_NAME), None)
-        assert app is not None
+        named = [a for a in apps if a.get("name") == APPLICATION_NAME]
+        assert named
 
-        req = urllib.request.Request(
-            f"{bootstrapped.config.issuer}/management/v1/projects/{project_id}/apps/{app['id']}",
-            headers=bootstrapped.headers,
-            method="DELETE",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30):
-                pass
-        except urllib.error.HTTPError as exc:
-            if exc.code != 404:
-                raise
+        for app in named:
+            req = urllib.request.Request(
+                f"{bootstrapped.config.issuer}/management/v1/projects/{project_id}/apps/{app['id']}",
+                headers=bootstrapped.headers,
+                method="DELETE",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30):
+                    pass
+            except urllib.error.HTTPError as exc:
+                if exc.code != 404:
+                    raise
 
-        # Verify it is gone
-        apps_before = bootstrapped.search_applications(project_id)
+        # Verify they are gone. Zitadel serves searches from an eventually
+        # consistent projection, so the delete may not be visible on the
+        # first read: poll briefly instead of asserting immediately.
+        apps_before: list[dict[str, Any]] = []
+        deadline = time.monotonic() + 30
+        while True:
+            apps_before = bootstrapped.search_applications(project_id)
+            if not any(a.get("name") == APPLICATION_NAME for a in apps_before):
+                break
+            if time.monotonic() > deadline:
+                break
+            time.sleep(0.5)
         assert not any(a.get("name") == APPLICATION_NAME for a in apps_before)
 
         # Re-run just the application ensure step
         bootstrapped.ensure_application(project_id)
 
-        # Verify it is back
-        apps_after = bootstrapped.search_applications(project_id)
-        app_after = next(
-            (a for a in apps_after if a.get("name") == APPLICATION_NAME), None
-        )
+        # Verify it is back (the same projection lag applies to creates).
+        app_after: dict[str, Any] | None = None
+        deadline = time.monotonic() + 30
+        while True:
+            apps_after = bootstrapped.search_applications(project_id)
+            app_after = next(
+                (a for a in apps_after if a.get("name") == APPLICATION_NAME), None
+            )
+            if app_after is not None or time.monotonic() > deadline:
+                break
+            time.sleep(0.5)
         assert app_after is not None
         config = app_after.get("oidcConfig", {})
         assert config.get("accessTokenType") == "OIDC_TOKEN_TYPE_JWT"

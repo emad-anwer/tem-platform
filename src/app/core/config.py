@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     # Empty by default (disabled); only ever honored when environment == "dev".
     bootstrap_admin_token: str = ""
 
+    port_scan_concurrency: int = Field(default=50, ge=1, le=500)
+    port_scan_connect_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
+
     @property
     def oidc_discovery_url(self) -> str:
         return f"{self.zitadel_issuer}/.well-known/openid-configuration"
