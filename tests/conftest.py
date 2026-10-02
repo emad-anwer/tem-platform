@@ -40,6 +40,23 @@ pytest_plugins = ["auth_fixtures"]
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 
 
+@pytest.fixture(autouse=True)
+def bypass_scanner_egress_limiter(monkeypatch):
+    """Unit tests stay offline; rate-limit behaviour has its own fake Redis tests."""
+
+    class _ImmediateLimiter:
+        async def wait_for_permission(self, *args, **kwargs) -> None:
+            return None
+
+    limiter = _ImmediateLimiter()
+    monkeypatch.setattr("app.core.scope.configured_rate_limiter", lambda: limiter)
+    monkeypatch.setattr("app.core.discovery.configured_rate_limiter", lambda: limiter)
+    monkeypatch.setattr(
+        "app.modules.asm.scanner.port_scanner.configured_rate_limiter",
+        lambda: limiter,
+    )
+
+
 # Offline stand-in for DNS: every test name resolves into the documentation
 # range the test allowlist covers. Never touches a resolver.
 async def _test_resolve_addresses(hostname: str) -> list[ipaddress.IPv4Address]:
@@ -47,16 +64,15 @@ async def _test_resolve_addresses(hostname: str) -> list[ipaddress.IPv4Address]:
 
 
 @pytest.fixture(autouse=True)
-def scan_scope(monkeypatch):
-    """Pin the scan scope for every test: fixed allowlist, no live DNS.
-
-    `check_scope` reads `get_settings()` through an lru_cache, so the cache is
-    cleared on both sides of the test — a test that overrides the env var
-    must never leak its allowlist into the next one.
-    """
+def scan_scope(request, monkeypatch):
+    """Pin the scan scope for every test: fixed allowlist, no live DNS."""
     monkeypatch.setenv("SCAN_SCOPE_ALLOWLIST", TEST_SCAN_SCOPE_ALLOWLIST)
     get_settings.cache_clear()
-    monkeypatch.setattr("app.core.scope.resolve_addresses", _test_resolve_addresses)
+    uses_real_lab = request.node.get_closest_marker(
+        "lab"
+    ) or request.node.get_closest_marker("lab_host")
+    if not uses_real_lab:
+        monkeypatch.setattr("app.core.scope.resolve_addresses", _test_resolve_addresses)
     yield
     get_settings.cache_clear()
 

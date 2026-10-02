@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     scheduled_scan_interval_minutes: int = Field(default=60, ge=5, le=1440)
     scheduled_scan_max_targets_per_tick: int = Field(default=50, ge=1, le=500)
 
+    # Scanner egress is a shared target budget, enforced in Redis. Override
+    # keys are ``host`` or ``operation:host`` (for example ``dns:resolver``).
+    scan_rate_limit_default_per_second: int = Field(default=5, gt=0)
+    scan_rate_limit_overrides: dict[str, int] = Field(default_factory=dict)
+    scan_rate_limit_max_wait_seconds: float = Field(default=10.0, ge=0)
+
     # Fail-closed: FastAPI debug tracebacks leak source code and absolute
     # paths on unhandled errors (OWASP A05), so debug may only be enabled
     # explicitly via setting DEBUG=true. Default is False.
@@ -86,6 +92,9 @@ class Settings(BaseSettings):
     # org/user exists to hold platform_admin. A static secret, not a JWT.
     # Empty by default (disabled); only ever honored when environment == "dev".
     bootstrap_admin_token: str = ""
+
+    port_scan_concurrency: int = Field(default=50, ge=1, le=500)
+    port_scan_connect_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
 
     @property
     def oidc_discovery_url(self) -> str:

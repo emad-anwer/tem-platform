@@ -8,8 +8,6 @@ import pytest
 from app.core.config import get_settings
 from app.core.redis import RedisManager, build_arq_redis_settings
 
-pytestmark = pytest.mark.asyncio
-
 
 def test_build_arq_redis_settings_requires_host_and_port():
     fake_url = SimpleNamespace(host=None, port=None, password=None, path="")

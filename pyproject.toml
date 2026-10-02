@@ -62,4 +62,6 @@ pythonpath = ["src", "."]
 markers = [
     "e2e: end-to-end tests hitting real dockerized Postgres + Redis (run via `just test`)",
     "live_zitadel: hits a real Zitadel instance; never runs in CI",
+    "lab: needs `just lab-up`; runs on the compose network (worker view)",
+    "lab_host: needs `just lab-up`; runs against 127.0.0.1 published ports",
 ]

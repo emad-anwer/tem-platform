@@ -64,6 +64,7 @@ import structlog
 
 from app.core.errors import ForbiddenError
 from app.core.pipeline.validation import normalize_hostname
+from app.core.rate_limit import SlidingWindowRateLimiter, configured_rate_limiter
 
 logger = structlog.get_logger(__name__)
 
@@ -318,19 +319,16 @@ def _blocked_reason_detail(address: IPAddress) -> str:
 
 
 async def resolve_addresses(hostname: str) -> list[IPAddress]:
-    """Resolve a name to A/AAAA addresses. Any DNS problem raises.
-
-    Not "returns an empty list" — an unresolvable target cannot be scope
-    checked, so it is refused (fail closed) with
-    :data:`ScopeReason.RESOLUTION_FAILED`.
-    """
+    """Resolve a name to A/AAAA addresses. Any DNS problem raises."""
     resolver = dns.asyncresolver.Resolver()
     found: dict[IPAddress, None] = {}
 
     async def resolve_type(record_type: str) -> None:
         try:
             answer = await resolver.resolve(
-                hostname, record_type, lifetime=DNS_TIMEOUT_SECONDS
+                hostname,
+                record_type,
+                lifetime=DNS_TIMEOUT_SECONDS,
             )
         except (
             dns.resolver.NXDOMAIN,
@@ -340,12 +338,15 @@ async def resolve_addresses(hostname: str) -> list[IPAddress]:
             dns.exception.DNSException,
         ):
             return
+
         for record in answer:
             found.setdefault(ipaddress.ip_address(str(record)))
 
     await asyncio.gather(*(resolve_type(kind) for kind in ("A", "AAAA")))
+
     if not found:
         raise LookupError(f"no address records for {hostname}")
+
     return list(found)
 
 
@@ -588,6 +589,7 @@ async def scoped_open_connection(
     *,
     scope: ScanScope | None = None,
     resolve: ResolveFn | None = None,
+    limiter: SlidingWindowRateLimiter,
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     """Check scope, then connect — to the address that was checked.
 
@@ -605,6 +607,8 @@ async def scoped_open_connection(
             port=port,
             detail=f"'{host}' has no checked address to connect to",
         )
+
+    await limiter.wait_for_permission(decision.host, operation="tcp")
 
     last_error: BaseException | None = None
     for address in decision.addresses:
@@ -637,12 +641,14 @@ class ScopedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         scope: ScanScope | None = None,
         resolve: ResolveFn | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        limiter: SlidingWindowRateLimiter | None = None,
     ) -> None:
         self._scope = scope
         self._resolve = resolve
         self._transport = (
             transport if transport is not None else httpx.AsyncHTTPTransport()
         )
+        self._limiter = limiter or configured_rate_limiter()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         url = request.url
@@ -650,6 +656,7 @@ class ScopedAsyncHTTPTransport(httpx.AsyncBaseTransport):
         decision = await check_scope(
             url.host, port=port, scope=self._scope, resolve=self._resolve
         )
+        await self._limiter.wait_for_permission(decision.host, operation="http")
         _pin_request_to_checked_address(request, decision)
         return await self._transport.handle_async_request(request)
 
@@ -680,6 +687,7 @@ def scoped_http_client(
     *,
     scope: ScanScope | None = None,
     resolve: ResolveFn | None = None,
+    limiter: SlidingWindowRateLimiter | None = None,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """An ``httpx`` client that cannot reach an out-of-scope host.
@@ -690,6 +698,8 @@ def scoped_http_client(
     refused at the connection layer, and refused *before* a socket exists.
     """
     return httpx.AsyncClient(
-        transport=ScopedAsyncHTTPTransport(scope=scope, resolve=resolve),
+        transport=ScopedAsyncHTTPTransport(
+            scope=scope, resolve=resolve, limiter=limiter
+        ),
         **kwargs,
     )
