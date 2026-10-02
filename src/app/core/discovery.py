@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -49,6 +48,7 @@ class ScanSource(Protocol):
 
     async def collect(self, domain: str) -> SourceResult:
         """Return candidate hostnames and degrade instead of raising upstream errors."""
+        ...
 
 
 class DNSSource:
@@ -150,7 +150,7 @@ class CertificateTransparencySource:
             )
             response.raise_for_status()
             payload = response.json()
-        except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValueError):
+        except (httpx.HTTPError, TypeError, ValueError):
             return SourceResult(set(), degraded=True, note="crt.sh unavailable")
 
         names: set[str] = set()
@@ -166,16 +166,11 @@ class CertificateTransparencySource:
         return SourceResult(names)
 
 
-async def discover_domain(
-    ctx: dict[str, Any],
-    run: ScanRun,
-    *,
-    sources: Iterable[ScanSource],
-    max_results: int = DEFAULT_MAX_RESULTS,
-    persist_finding: bool = True,
-) -> None:
-    """Collect, normalize, resolve, and persist passive domain discoveries."""
-    target = await _get_target(ctx["db"], run.target_id)
+async def _load_domain_target(
+    session: AsyncSession, target_id: Any
+) -> tuple[Target, str]:
+    """Fetch the target, validate it as a domain, and re-check scope in-worker."""
+    target = await _get_target(session, target_id)
     if target.kind != "domain":
         raise ValueError("Only domain targets can use subdomain discovery.")
     domain = _normalise_hostname(target.value_normalized)
@@ -187,15 +182,17 @@ async def discover_domain(
     # raises ScopeViolationError, which execute_scan_run turns into a terminal
     # failure instead of a retry loop.
     await check_scope(domain)
+    return target, domain
 
-    source_list = list(sources)
-    await _record_sources(
-        ctx["db"], run.id, [source.name for source in source_list], [], None
-    )
-    results = await asyncio.gather(*(source.collect(domain) for source in source_list))
-    names = {domain}
-    degraded: list[str] = []
-    degradation_notes: list[str] = []
+
+def _merge_source_results(
+    source_list: list[ScanSource],
+    results: list[SourceResult],
+    names: set[str],
+    degraded: list[str],
+    degradation_notes: list[str],
+) -> None:
+    """Fold one round of source results into the shared name/degraded sets."""
     for source, result in zip(source_list, results, strict=True):
         names.update(result.items)
         if result.degraded:
@@ -203,6 +200,14 @@ async def discover_domain(
             if result.note:
                 degradation_notes.append(f"{source.name}: {result.note}")
 
+
+async def _resolve_with_dns(
+    source_list: list[ScanSource],
+    names: set[str],
+    degraded: list[str],
+    degradation_notes: list[str],
+) -> None:
+    """Resolve everything collected so far through the DNS source, if present."""
     dns_source = next(
         (source for source in source_list if isinstance(source, DNSSource)), None
     )
@@ -214,6 +219,67 @@ async def discover_domain(
                 degraded.append(dns_source.name)
             if dns_result.note:
                 degradation_notes.append(f"{dns_source.name}: {dns_result.note}")
+
+
+async def _persist_discoveries(
+    session: AsyncSession,
+    target: Target,
+    run: ScanRun,
+    names: set[str],
+    *,
+    persist_finding: bool,
+) -> int:
+    """Upsert findings for one run. Returns the new-findings count."""
+    if not persist_finding:
+        return 0
+    repository = FindingRepository(session)
+    items = [
+        {
+            "target_id": target.id,
+            "run_id": run.id,
+            "kind": FindingKind.SUBDOMAIN,
+            "value": name,
+        }
+        for name in sorted(names)
+    ]
+    fingerprints = {
+        compute_fingerprint(
+            FindingKind.SUBDOMAIN,
+            target.id,
+            normalize_finding_value(FindingKind.SUBDOMAIN, item["value"]),
+        )
+        for item in items
+    }
+    _, new_findings_count = await repository.upsert_discovery_batch(items)
+    await repository.resolve_missing_discoveries(
+        target_id=target.id,
+        seen_fingerprints=fingerprints,
+        kinds={FindingKind.SUBDOMAIN},
+    )
+    return new_findings_count
+
+
+async def discover_domain(
+    ctx: dict[str, Any],
+    run: ScanRun,
+    *,
+    sources: Iterable[ScanSource],
+    max_results: int = DEFAULT_MAX_RESULTS,
+    persist_finding: bool = True,
+) -> None:
+    """Collect, normalize, resolve, and persist passive domain discoveries."""
+    target, domain = await _load_domain_target(ctx["db"], run.target_id)
+
+    source_list = list(sources)
+    await _record_sources(
+        ctx["db"], run.id, [source.name for source in source_list], [], None
+    )
+    results = await asyncio.gather(*(source.collect(domain) for source in source_list))
+    names = {domain}
+    degraded: list[str] = []
+    degradation_notes: list[str] = []
+    _merge_source_results(source_list, results, names, degraded, degradation_notes)
+    await _resolve_with_dns(source_list, names, degraded, degradation_notes)
 
     names = {
         name
@@ -229,33 +295,9 @@ async def discover_domain(
         degradation_notes,
     )
 
-    if persist_finding:
-        repository = FindingRepository(ctx["db"])
-        items = [
-            {
-                "target_id": target.id,
-                "run_id": run.id,
-                "kind": FindingKind.SUBDOMAIN,
-                "value": name,
-            }
-            for name in sorted(names)
-        ]
-        fingerprints = {
-            compute_fingerprint(
-                FindingKind.SUBDOMAIN,
-                target.id,
-                normalize_finding_value(FindingKind.SUBDOMAIN, item["value"]),
-            )
-            for item in items
-        }
-        _, new_findings_count = await repository.upsert_discovery_batch(items)
-        await repository.resolve_missing_discoveries(
-            target_id=target.id,
-            seen_fingerprints=fingerprints,
-            kinds={FindingKind.SUBDOMAIN},
-        )
-    else:
-        new_findings_count = 0
+    new_findings_count = await _persist_discoveries(
+        ctx["db"], target, run, names, persist_finding=persist_finding
+    )
 
     run.findings_count = len(names)
     run.new_findings_count = new_findings_count
