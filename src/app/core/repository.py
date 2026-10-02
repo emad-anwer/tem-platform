@@ -450,38 +450,6 @@ class TargetRepository(TenantScopedRepository[Target]):
         return items, self._encode_cursor(items[-1])
 
 
-async def fail_stale_scan_runs(session: AsyncSession, *, before: datetime) -> int:
-    """Platform-level reaper: fail runs stuck in ``running`` before ``before``.
-
-    Deliberately unscoped — the stale-run sweeper (W4-09) has no tenant, and
-    a worker killed holding any tenant's run must still be reaped. Tenant
-    scoping is enforced everywhere a tenant exists; here there is none, so
-    going through ``TenantScopedRepository`` would demand a phantom tenant.
-    Idempotent: only ``running`` rows match, so a second call finds nothing.
-
-    One UPDATE statement, not SELECT-then-loop: the filter guarantees every
-    matched row is ``running``, so there is no transition to validate and no
-    reason to materialize rows the sweeper never reads.
-    """
-    result = await session.execute(
-        update(ScanRun)
-        .where(
-            ScanRun.status == ScanRunStatus.RUNNING,
-            ScanRun.started_at < before,
-        )
-        .values(
-            status=ScanRunStatus.FAILED,
-            error_kind="stale",
-            error_message="stale: worker exceeded its deadline",
-            finished_at=datetime.now(UTC),
-        )
-    )
-    marked = result.rowcount
-    if marked:
-        await session.commit()
-    return marked
-
-
 class ScanRunRepository(TenantScopedRepository[ScanRun]):
     """Tenant-scoped repository for ScanRuns."""
 
@@ -577,7 +545,22 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
         return run
 
     async def fail_stale(self, *, before: datetime) -> int:
-        return await fail_stale_scan_runs(self._session, before=before)
+        result = await self._session.execute(
+            select(self.model).where(
+                self.model.status == ScanRunStatus.RUNNING,
+                self.model.started_at < before,
+            )
+        )
+        runs = list(result.scalars().all())
+        for run in runs:
+            transition_status(run.status, ScanRunStatus.FAILED)
+            run.status = ScanRunStatus.FAILED
+            run.error_kind = "stale"
+            run.error_message = "stale: worker exceeded its deadline"
+            run.finished_at = datetime.now(UTC)
+        if runs:
+            await self._session.commit()
+        return len(runs)
 
     async def _finish(self, run_id: UUID | str, status: ScanRunStatus) -> ScanRun:
         run = await self.get_by_id(run_id)
