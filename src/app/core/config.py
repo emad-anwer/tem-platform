@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     # not per-tenant data — per-tenant scope is week 6.
     scan_scope_allowlist: str = ""
 
+    # W4-09 (issue #101): scheduler knobs for the two arq cron jobs.
+    # Sweep marks worker-killed runs stale; the scan tick re-enqueues one
+    # job per active target. The per-tick cap bounds the fan-out so 200
+    # targets don't become a self-inflicted outage (W4-05's limiter is
+    # per-host and won't save a cross-host fan-out).
+    scheduled_sweep_interval_minutes: int = Field(default=5, ge=1, le=60)
+    scheduled_scan_interval_minutes: int = Field(default=60, ge=5, le=1440)
+    scheduled_scan_max_targets_per_tick: int = Field(default=50, ge=1, le=500)
+
     # Scanner egress is a shared target budget, enforced in Redis. Override
     # keys are ``host`` or ``operation:host`` (for example ``dns:resolver``).
     scan_rate_limit_default_per_second: int = Field(default=5, gt=0)

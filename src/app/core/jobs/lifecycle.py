@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import ScanRun
 from app.core.rate_limit import RateLimitWaitCapped
-from app.core.repository import ScanRunRepository
+from app.core.repository import ScanRunRepository, fail_stale_scan_runs
 from app.core.scope import ScopeViolationError
 
 MAX_FAILURE_MESSAGE_LENGTH = 2000
@@ -139,7 +139,10 @@ async def mark_stale_runs(
     job_timeout: float = 300.0,
     now: datetime | None = None,
 ) -> int:
-    """Mark running rows older than twice the job deadline as stale failures."""
+    """Mark running rows older than twice the job deadline as stale failures.
+
+    Takes a bare session, not a tenant-scoped repository: the sweeper is a
+    platform-level job with no tenant to scope to.
+    """
     cutoff = (now or datetime.now(UTC)) - timedelta(seconds=job_timeout * 2)
-    repository = ScanRunRepository(session)
-    return await repository.fail_stale(before=cutoff)
+    return await fail_stale_scan_runs(session, before=cutoff)
