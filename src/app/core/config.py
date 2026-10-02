@@ -1,7 +1,7 @@
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import PostgresDsn, RedisDsn
+from pydantic import Field, PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     # `app.core.scope`). Default deny: empty scans nothing. Configuration,
     # not per-tenant data — per-tenant scope is week 6.
     scan_scope_allowlist: str = ""
+
+    # W4-09 (issue #101): scheduler knobs for the two arq cron jobs.
+    # Sweep marks worker-killed runs stale; the scan tick re-enqueues one
+    # job per active target. The per-tick cap bounds the fan-out so 200
+    # targets don't become a self-inflicted outage (W4-05's limiter is
+    # per-host and won't save a cross-host fan-out).
+    scheduled_sweep_interval_minutes: int = Field(default=5, ge=1, le=60)
+    scheduled_scan_interval_minutes: int = Field(default=60, ge=5, le=1440)
+    scheduled_scan_max_targets_per_tick: int = Field(default=50, ge=1, le=500)
 
     # Fail-closed: FastAPI debug tracebacks leak source code and absolute
     # paths on unhandled errors (OWASP A05), so debug may only be enabled
