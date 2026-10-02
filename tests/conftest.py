@@ -51,6 +51,10 @@ def bypass_scanner_egress_limiter(monkeypatch):
     limiter = _ImmediateLimiter()
     monkeypatch.setattr("app.core.scope.configured_rate_limiter", lambda: limiter)
     monkeypatch.setattr("app.core.discovery.configured_rate_limiter", lambda: limiter)
+    monkeypatch.setattr(
+        "app.modules.asm.scanner.port_scanner.configured_rate_limiter",
+        lambda: limiter,
+    )
 
 
 # Offline stand-in for DNS: every test name resolves into the documentation

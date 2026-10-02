@@ -9,6 +9,7 @@ from enum import StrEnum
 import structlog
 
 from app.core.config import get_settings
+from app.core.rate_limit import SlidingWindowRateLimiter, configured_rate_limiter
 from app.core.scope import (
     IPAddress,
     ScanScope,
@@ -130,9 +131,14 @@ async def _attempt(
     return PortResult(port, PortState.OPEN)
 
 
-def _scoped_connector(scope: ScanScope, addresses: tuple[IPAddress, ...]) -> ConnectFn:
+def _scoped_connector(
+    scope: ScanScope,
+    addresses: tuple[IPAddress, ...],
+    limiter: SlidingWindowRateLimiter | None = None,
+) -> ConnectFn:
     """Connector that scope-checks every port but never re-resolves the name."""
     pinned = list(addresses)
+    active_limiter = limiter or configured_rate_limiter()
 
     async def pinned_resolve(_hostname: str) -> list[IPAddress]:
         return pinned
@@ -141,7 +147,7 @@ def _scoped_connector(scope: ScanScope, addresses: tuple[IPAddress, ...]) -> Con
         host: str, port: int
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         return await scoped_open_connection(
-            host, port, scope=scope, resolve=pinned_resolve
+            host, port, scope=scope, resolve=pinned_resolve, limiter=active_limiter
         )
 
     return connect
@@ -155,6 +161,7 @@ async def scan_host(
     connect_timeout_seconds: float | None = None,
     scope: ScanScope | None = None,
     connect: ConnectFn | None = None,
+    limiter: SlidingWindowRateLimiter | None = None,
 ) -> PortScanReport:
     settings = get_settings()
     port_list = _validate_ports(CURATED_TCP_PORTS if ports is None else ports)
@@ -174,7 +181,9 @@ async def scan_host(
     if not decision.addresses:
         raise ValueError(f"'{host}' is a network, not a host; scan hosts only")
 
-    connector = connect or _scoped_connector(active_scope, decision.addresses)
+    connector = connect or _scoped_connector(
+        active_scope, decision.addresses, limiter=limiter
+    )
     semaphore = asyncio.Semaphore(limit)
     tally = _Tally()
 
