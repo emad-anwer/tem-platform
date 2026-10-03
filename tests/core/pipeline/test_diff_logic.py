@@ -616,7 +616,8 @@ async def test_persist_discovery_run_rolls_back_when_snapshot_write_fails(
     target = await _make_target(
         db_session, tenant_id=tenant_a.id, name="rollback.example.com"
     )
-    run = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
+    target_id = target.id
+    run = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target_id)
     repository = FindingRepository(db_session, tenant_id=tenant_a.id)
 
     async def fail_add_snapshots(self, **kwargs):
@@ -625,11 +626,11 @@ async def test_persist_discovery_run_rolls_back_when_snapshot_write_fails(
     monkeypatch.setattr(ScanRunFindingRepository, "add_snapshots", fail_add_snapshots)
     with pytest.raises(RuntimeError, match="snapshot write failed"):
         await repository.persist_discovery_run(
-            target_id=target.id,
+            target_id=target_id,
             run_id=run.id,
             items=[
                 _item(
-                    target.id,
+                    target_id,
                     run_id=run.id,
                     hostname="api.rollback.example.com",
                 )
@@ -637,7 +638,7 @@ async def test_persist_discovery_run_rolls_back_when_snapshot_write_fails(
             kinds={FindingKind.SUBDOMAIN},
         )
 
-    findings, _ = await repository.list(target_id=target.id)
+    findings, _ = await repository.list(target_id=target_id)
     assert findings == []
 
 
