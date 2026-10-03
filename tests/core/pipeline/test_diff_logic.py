@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from app.core.auth.context import set_current_principal
 from app.core.auth.principal import Principal, Role
 from app.core.fingerprint import FindingKind
@@ -567,3 +569,196 @@ async def test_persist_discovery_run_replaces_snapshots_for_the_same_run(
     ).list_for_run(run.id)
     assert len(snapshots) == 1
     assert snapshots[0].classification == "unchanged"
+
+
+async def test_persist_discovery_run_commits_findings_and_snapshots_once(
+    db_session, two_tenants
+):
+    tenant_a, _ = two_tenants
+    set_current_principal(_owner(tenant_a.id))
+    target = await _make_target(
+        db_session, tenant_id=tenant_a.id, name="atomic.example.com"
+    )
+    run = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
+    repository = FindingRepository(db_session, tenant_id=tenant_a.id)
+    original_commit = db_session.commit
+    commit_count = 0
+
+    async def counting_commit():
+        nonlocal commit_count
+        commit_count += 1
+        return await original_commit()
+
+    db_session.commit = counting_commit
+    await repository.persist_discovery_run(
+        target_id=target.id,
+        run_id=run.id,
+        items=[_item(target.id, run_id=run.id, hostname="api.atomic.example.com")],
+        kinds={FindingKind.SUBDOMAIN},
+    )
+
+    assert commit_count == 1
+    assert (
+        len(
+            await ScanRunFindingRepository(
+                db_session, tenant_id=tenant_a.id
+            ).list_for_run(run.id)
+        )
+        == 1
+    )
+
+
+async def test_persist_discovery_run_rolls_back_when_snapshot_write_fails(
+    db_session, two_tenants, monkeypatch
+):
+    tenant_a, _ = two_tenants
+    set_current_principal(_owner(tenant_a.id))
+    target = await _make_target(
+        db_session, tenant_id=tenant_a.id, name="rollback.example.com"
+    )
+    run = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
+    repository = FindingRepository(db_session, tenant_id=tenant_a.id)
+
+    async def fail_add_snapshots(self, **kwargs):
+        raise RuntimeError("snapshot write failed")
+
+    monkeypatch.setattr(ScanRunFindingRepository, "add_snapshots", fail_add_snapshots)
+    with pytest.raises(RuntimeError, match="snapshot write failed"):
+        await repository.persist_discovery_run(
+            target_id=target.id,
+            run_id=run.id,
+            items=[
+                _item(
+                    target.id,
+                    run_id=run.id,
+                    hostname="api.rollback.example.com",
+                )
+            ],
+            kinds={FindingKind.SUBDOMAIN},
+        )
+
+    findings, _ = await repository.list(target_id=target.id)
+    assert findings == []
+
+
+async def test_run_snapshot_uses_its_upsert_result_after_last_seen_changes(
+    db_session, two_tenants, monkeypatch
+):
+    tenant_a, _ = two_tenants
+    set_current_principal(_owner(tenant_a.id))
+    target = await _make_target(
+        db_session, tenant_id=tenant_a.id, name="run-membership.example.com"
+    )
+    run_a = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
+    run_b = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
+    repository = FindingRepository(db_session, tenant_id=tenant_a.id)
+    original_upsert = repository._upsert_discovery_batch
+
+    async def upsert_then_overlap(items, **kwargs):
+        result = await original_upsert(items, **kwargs)
+        if kwargs["return_findings"]:
+            await original_upsert(
+                [
+                    _item(
+                        target.id,
+                        run_id=run_b.id,
+                        hostname="api.run-membership.example.com",
+                        details={"source": "run-b"},
+                    )
+                ],
+                batch_size=kwargs["batch_size"],
+                commit=False,
+                return_findings=False,
+            )
+        return result
+
+    monkeypatch.setattr(repository, "_upsert_discovery_batch", upsert_then_overlap)
+    await repository.persist_discovery_run(
+        target_id=target.id,
+        run_id=run_a.id,
+        items=[
+            _item(
+                target.id,
+                run_id=run_a.id,
+                hostname="api.run-membership.example.com",
+                details={"source": "run-a"},
+            )
+        ],
+        kinds={FindingKind.SUBDOMAIN},
+    )
+
+    snapshots = await ScanRunFindingRepository(
+        db_session, tenant_id=tenant_a.id
+    ).list_for_run(run_a.id)
+    assert len(snapshots) == 1
+    assert snapshots[0].finding_snapshot["attributes"]["last_seen_run_id"] == str(
+        run_a.id
+    )
+    assert snapshots[0].finding_snapshot["attributes"]["details"] == {"source": "run-a"}
+
+
+# ---------------------------------------------------------------------------
+# Test: a run's snapshot survives a concurrent run stealing last_seen_run_id
+# ---------------------------------------------------------------------------
+
+
+async def test_snapshot_not_lost_when_a_later_run_overwrites_last_seen(
+    db_session, two_tenants
+):
+    """Two overlapping runs for one target must not erase each other's snapshots.
+
+    ``Finding.last_seen_run_id`` is mutable provenance, not a membership record.
+    Nothing serialises runs per target — ``start_scan`` dedups the arq job id per
+    *run*, and the worker runs jobs concurrently — so run B's upsert can move a
+    finding's ``last_seen_run_id`` off run A after A persisted its findings but
+    before A reads them back.  Selecting the observed set with
+    ``WHERE last_seen_run_id = :run_id`` would then return nothing for A, and
+    (worse) A's "missing" query would classify those same findings ``resolved``.
+
+    This reproduces that interleaving deterministically: it runs B's upsert in
+    the middle of A's persist, which is exactly the window a real overlap hits.
+    """
+    tenant_a, _ = two_tenants
+    set_current_principal(_owner(tenant_a.id))
+
+    target = await _make_target(
+        db_session, tenant_id=tenant_a.id, name="overlap.example.com"
+    )
+    findings_repo = FindingRepository(db_session, tenant_id=tenant_a.id)
+
+    run_a = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
+    run_b = await _make_run(db_session, tenant_id=tenant_a.id, target_id=target.id)
+    hostnames = ["a.overlap.example.com", "b.overlap.example.com"]
+    items_a = [_item(target.id, run_id=run_a.id, hostname=h) for h in hostnames]
+
+    # A persists its findings, then B's upsert lands and takes over
+    # last_seen_run_id for the same fingerprints...
+    await findings_repo.upsert_discovery_batch(items_a)
+    await findings_repo.upsert_discovery_batch(
+        [_item(target.id, run_id=run_b.id, hostname=h) for h in hostnames]
+    )
+
+    stolen, _ = await findings_repo.list(target_id=target.id)
+    assert {f.last_seen_run_id for f in stolen} == {run_b.id}, (
+        "Precondition: B now owns last_seen_run_id for these findings"
+    )
+
+    # ...but A must still reconstruct its own observed set and snapshot them.
+    from app.core.fingerprint import compute_fingerprint
+
+    fingerprints = {
+        compute_fingerprint(FindingKind.SUBDOMAIN, target.id, h.lower())
+        for h in hostnames
+    }
+    observed = await findings_repo.list_observed_in_run(
+        target_id=target.id, fingerprints=fingerprints
+    )
+    assert {f.value for f in observed} == set(hostnames), (
+        "A's observed set must be addressed by fingerprint, not by the "
+        "mutable last_seen_run_id column that B has since overwritten"
+    )
+
+    empty = await findings_repo.list_observed_in_run(
+        target_id=target.id, fingerprints=set()
+    )
+    assert empty == [], "an empty fingerprint set must return nothing"

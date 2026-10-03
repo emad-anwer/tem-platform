@@ -46,6 +46,10 @@ def upgrade() -> None:
             "scan_run_id",
             "finding_id",
             name="uq_scan_run_findings_tenant_run_finding",
+            # finding_id is ON DELETE SET NULL and plain UNIQUE treats NULLs as
+            # distinct, so the constraint would not actually hold once a
+            # finding is deleted. postgres:16 supports NULLS NOT DISTINCT.
+            postgresql_nulls_not_distinct=True,
         ),
     )
     op.create_index(

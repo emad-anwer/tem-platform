@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from sqlalchemy import delete, func, literal_column, or_, select, tuple_, update
+from sqlalchemy import delete, func, literal_column, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -707,7 +707,11 @@ class FindingRepository(TenantScopedRepository[Finding]):
         return {finding.fingerprint: finding for finding in result.scalars().all()}
 
     async def list_active_for_target(
-        self, *, target_id: UUID, kinds: set[FindingKind], excluding_run_id: UUID
+        self,
+        *,
+        target_id: UUID,
+        kinds: set[FindingKind],
+        excluding_fingerprints: set[str],
     ) -> Sequence[Finding]:
         if not kinds:
             return []
@@ -715,18 +719,39 @@ class FindingRepository(TenantScopedRepository[Finding]):
             Finding.target_id == target_id,
             Finding.status == "active",
             Finding.kind.in_([FindingKind(kind).value for kind in kinds]),
-            or_(
-                Finding.last_seen_run_id.is_(None),
-                Finding.last_seen_run_id != excluding_run_id,
-            ),
         )
+        if excluding_fingerprints:
+            statement = statement.where(
+                Finding.fingerprint.not_in(excluding_fingerprints)
+            )
+        statement = statement.execution_options(populate_existing=True)
         result = await self._session.execute(statement)
         return result.scalars().all()
 
-    async def list_seen_in_run(self, run_id: UUID) -> Sequence[Finding]:
+    async def list_observed_in_run(
+        self, *, target_id: UUID, fingerprints: set[str]
+    ) -> Sequence[Finding]:
+        """The findings one run just wrote, addressed by fingerprint.
+
+        Deliberately *not* ``WHERE last_seen_run_id = :run_id``.  That column is
+        mutable provenance, not a membership record: a second scan of the same
+        target overwrites it, and nothing stops two runs for one target from
+        overlapping (``start_scan`` dedups the arq job id per run, not per
+        target, and the worker runs jobs concurrently).  A run's own observed set
+        is the fingerprint set it just upserted — that is exact and race-free.
+
+        ``populate_existing`` is required: the pre-upsert read in
+        ``persist_discovery_run`` put these rows in the identity map, and the
+        upsert is a Core statement that does not refresh them.
+        """
+        if not fingerprints:
+            return []
         statement = self._scope_select(
             select(Finding).execution_options(populate_existing=True)
-        ).where(Finding.last_seen_run_id == run_id)
+        ).where(
+            Finding.target_id == target_id,
+            Finding.fingerprint.in_(fingerprints),
+        )
         result = await self._session.execute(statement)
         return result.scalars().all()
 
@@ -785,6 +810,23 @@ class FindingRepository(TenantScopedRepository[Finding]):
         *,
         batch_size: int = DEFAULT_INSERT_CHUNK_SIZE,
     ) -> tuple[int, int]:
+        """Upsert a batch of findings and commit the batch once."""
+        total, new_count, _ = await self._upsert_discovery_batch(
+            items,
+            batch_size=batch_size,
+            commit=True,
+            return_findings=False,
+        )
+        return total, new_count
+
+    async def _upsert_discovery_batch(
+        self,
+        items: Sequence[dict[str, Any]],
+        *,
+        batch_size: int,
+        commit: bool,
+        return_findings: bool,
+    ) -> tuple[int, int, list[Finding]]:
         """Upsert multiple findings in one transaction, chunking the INSERT statements.
 
         Each item must provide: ``target_id``, ``run_id``, ``kind``, ``value``.
@@ -795,12 +837,10 @@ class FindingRepository(TenantScopedRepository[Finding]):
         ``tenant_id`` key present in an item dict is silently overridden — there is no
         opt-out.  This is the same invariant as ``create()`` and ``upsert_discovery()``.
 
-        **Single transaction, single commit.**  All INSERT … ON CONFLICT statements
-        execute inside one open transaction; exactly one ``commit()`` at the end makes
-        them all visible atomically.  A failure in any chunk rolls back everything →
-        zero rows persisted → safe retry (issue #76: "one commit — or none of them").
+        All INSERT … ON CONFLICT statements execute in one transaction.
         ``batch_size`` caps per-statement work only; it does not release locks
-        between chunks — locks are held until the final commit or rollback.
+        between chunks. When ``commit`` is true, this helper commits once and
+        rolls back on failure; otherwise the caller owns transaction completion.
 
         **SET clause follows ADR-0003 §6 exactly:**
 
@@ -812,22 +852,25 @@ class FindingRepository(TenantScopedRepository[Finding]):
 
         Args:
             items: Sequence of dicts, one per finding to upsert.
-            batch_size: Max rows per INSERT statement (default ``DEFAULT_INSERT_CHUNK_SIZE``).
+            batch_size: Max rows per INSERT statement.
+            commit: Whether this helper commits and rolls back its transaction.
+            return_findings: Whether to return the exact rows written by the upsert.
 
         Returns:
-            ``(total_findings, new_findings)`` counts across all chunks.
+            Total and new finding counts, plus returned findings when requested.
 
         Raises:
             ValueError: If ``batch_size`` is not positive.
         """
         if not items:
-            return 0, 0
+            return 0, 0, []
         if batch_size <= 0:
             raise ValueError("batch_size must be greater than 0.")
 
         now = datetime.now(UTC)
         total = 0
         new_count = 0
+        findings: list[Finding] = []
 
         try:
             for chunk_start in range(0, len(items), batch_size):
@@ -876,22 +919,31 @@ class FindingRepository(TenantScopedRepository[Finding]):
                             # first_seen_at deliberately excluded per ADR §6.
                         },
                     )
-                    # PostgreSQL: xmax = 0 for freshly inserted tuples; non-zero for conflict-updated.
-                    .returning(literal_column("xmax = 0").label("inserted"))
                 )
-                result = await self._session.execute(stmt)
-                flags = result.scalars().all()
+                inserted_column = literal_column("xmax = 0").label("inserted")
+                if return_findings:
+                    stmt = stmt.returning(Finding, inserted_column)
+                    result = await self._session.execute(
+                        stmt.execution_options(populate_existing=True)
+                    )
+                    rows = result.all()
+                    findings.extend(finding for finding, _ in rows)
+                    flags = [inserted for _, inserted in rows]
+                else:
+                    stmt = stmt.returning(inserted_column)
+                    result = await self._session.execute(stmt)
+                    flags = result.scalars().all()
                 total += len(flags)
                 new_count += sum(1 for f in flags if f)
                 # No commit here — all chunks share the same open transaction.
 
-            await (
-                self._session.commit()
-            )  # One commit for the entire batch (all-or-nothing).
+            if commit:
+                await self._session.commit()
         except Exception:
-            await self._session.rollback()
+            if commit:
+                await self._session.rollback()
             raise
-        return total, new_count
+        return total, new_count, findings
 
     async def persist_discovery_run(
         self,
@@ -902,7 +954,18 @@ class FindingRepository(TenantScopedRepository[Finding]):
         kinds: set[FindingKind],
         degraded: bool = False,
     ) -> int:
-        """Upsert a scanner's findings and persist its generic run-to-run diff."""
+        """Upsert a scanner's findings and persist its generic run-to-run diff.
+
+        The pre-upsert finding row is the single source for the previous
+        status/details; rows returned by this run's upsert are the current side.
+        Finding upserts, missing-finding resolution, and snapshot replacement
+        share one transaction, so a failure cannot leave persisted findings
+        without their corresponding run snapshots.
+
+        Details use the cumulative shallow-merge semantics defined in
+        ADR-0003 §6. Missing membership is computed from the run's explicit
+        fingerprint set, not the mutable ``last_seen_run_id`` provenance field.
+        """
         fingerprints = {
             compute_fingerprint(
                 FindingKind(item["kind"]),
@@ -924,70 +987,65 @@ class FindingRepository(TenantScopedRepository[Finding]):
         run_finding_repository = ScanRunFindingRepository(
             self._session, tenant_id=self.tenant_id
         )
-        previous_run = await ScanRunRepository(
-            self._session, tenant_id=self.tenant_id
-        ).get_previous_successful(target_id=target_id, excluding_run_id=run_id)
-        previous_by_fingerprint: dict[str, dict[str, Any]] = {}
-        if previous_run is not None:
-            for snapshot in await run_finding_repository.list_for_run(previous_run.id):
-                fingerprint = _snapshot_fingerprint(snapshot)
-                attributes = _snapshot_attributes(snapshot)
-                if fingerprint and attributes is not None:
-                    previous_by_fingerprint[fingerprint] = attributes
-
-        await self.upsert_discovery_batch(items)
-        observed = await self.list_seen_in_run(run_id)
-        missing = await self.list_active_for_target(
-            target_id=target_id,
-            kinds=kinds,
-            excluding_run_id=run_id,
-        )
-        if not degraded:
-            await self.resolve_missing_discoveries(
+        try:
+            _, _, observed = await self._upsert_discovery_batch(
+                items,
+                batch_size=DEFAULT_INSERT_CHUNK_SIZE,
+                commit=False,
+                return_findings=True,
+            )
+            missing = await self.list_active_for_target(
                 target_id=target_id,
-                seen_fingerprints=fingerprints,
                 kinds=kinds,
+                excluding_fingerprints=fingerprints,
             )
-
-        snapshots = []
-        for finding in observed:
-            previous = existing_state.get(finding.fingerprint)
-            if previous is None:
-                classification = "new"
-            elif previous["status"] == "resolved":
-                classification = "reappeared"
-            else:
-                previous_details = _snapshot_attributes_details(
-                    previous_by_fingerprint.get(finding.fingerprint)
+            if not degraded:
+                await self.resolve_missing_discoveries(
+                    target_id=target_id,
+                    seen_fingerprints=fingerprints,
+                    kinds=kinds,
+                    commit=False,
                 )
-                if previous_details is None:
-                    previous_details = previous["details"]
-                classification = (
-                    "unchanged"
-                    if dict(previous_details) == dict(finding.details or {})
-                    else "mutated"
-                )
-            snapshots.append(
-                {
-                    "finding_id": finding.id,
-                    "classification": classification,
-                    "finding_snapshot": _finding_snapshot(finding),
-                }
-            )
 
-        for finding in missing:
-            snapshots.append(
-                {
-                    "finding_id": finding.id,
-                    "classification": "unchanged" if degraded else "resolved",
-                    "finding_snapshot": _finding_snapshot(
-                        finding, status="active" if degraded else "resolved"
-                    ),
-                }
+            snapshots = []
+            for finding in observed:
+                previous = existing_state.get(finding.fingerprint)
+                if previous is None:
+                    classification = "new"
+                elif previous["status"] == "resolved":
+                    classification = "reappeared"
+                else:
+                    classification = (
+                        "unchanged"
+                        if previous["details"] == dict(finding.details or {})
+                        else "mutated"
+                    )
+                snapshots.append(
+                    {
+                        "finding_id": finding.id,
+                        "classification": classification,
+                        "finding_snapshot": _finding_snapshot(finding),
+                    }
+                )
+            for finding in missing:
+                snapshots.append(
+                    {
+                        "finding_id": finding.id,
+                        "classification": "unchanged" if degraded else "resolved",
+                        "finding_snapshot": _finding_snapshot(
+                            finding, status="active" if degraded else "resolved"
+                        ),
+                    }
+                )
+            await run_finding_repository.add_snapshots(
+                scan_run_id=run_id,
+                snapshots=snapshots,
+                commit=False,
             )
-        await run_finding_repository.add_snapshots(
-            scan_run_id=run_id, snapshots=snapshots
-        )
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
         return sum(snapshot["classification"] == "new" for snapshot in snapshots)
 
     async def resolve_missing_discoveries(
@@ -996,6 +1054,7 @@ class FindingRepository(TenantScopedRepository[Finding]):
         target_id: UUID,
         seen_fingerprints: set[str],
         kinds: set[FindingKind],
+        commit: bool = True,
     ) -> int:
         """Mark active discoveries absent from the latest scan as resolved."""
         statement = update(Finding).where(
@@ -1008,7 +1067,8 @@ class FindingRepository(TenantScopedRepository[Finding]):
             statement = statement.where(Finding.fingerprint.not_in(seen_fingerprints))
         statement = statement.values(status="resolved", updated_at=datetime.now(UTC))
         result = await self._session.execute(statement)
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
         return result.rowcount
 
     async def list(  # noqa: S2638 -- filtered repository methods intentionally extend the base query API.
@@ -1092,7 +1152,11 @@ class ScanRunFindingRepository(TenantScopedRepository[ScanRunFinding]):
         return CreatedAtIdCursor.decode(cursor)
 
     async def add_snapshots(
-        self, *, scan_run_id: UUID, snapshots: Sequence[dict[str, Any]]
+        self,
+        *,
+        scan_run_id: UUID,
+        snapshots: Sequence[dict[str, Any]],
+        commit: bool = True,
     ) -> None:
         await self._session.execute(
             delete(ScanRunFinding).where(
@@ -1113,7 +1177,8 @@ class ScanRunFindingRepository(TenantScopedRepository[ScanRunFinding]):
                     for snapshot in snapshots
                 ]
             )
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
 
     async def list_for_run(self, scan_run_id: UUID) -> Sequence[ScanRunFinding]:
         statement = self._scope_select(select(ScanRunFinding)).where(
@@ -1125,6 +1190,17 @@ class ScanRunFindingRepository(TenantScopedRepository[ScanRunFinding]):
     async def list_changes(
         self, *, scan_run_id: UUID, limit: int, cursor: str | None
     ) -> tuple[Sequence[ScanRunFinding], dict[str, int], str | None]:
+        """Counts plus one cursor page of a run's finding snapshots.
+
+        Counts and page are separate statements, so under READ COMMITTED they
+        do not share a database snapshot and may disagree if snapshots are
+        concurrently changed between the statements. Normal lifecycle writes
+        all snapshots atomically before marking a run successful, and the
+        endpoint serves only successful runs; the result is therefore stable
+        unless snapshots are modified outside that lifecycle. Kept as two
+        statements because counts are grouped by classification while the page
+        is cursor-ordered.
+        """
         counts = {
             "new": 0,
             "reappeared": 0,
@@ -1162,29 +1238,6 @@ class ScanRunFindingRepository(TenantScopedRepository[ScanRunFinding]):
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
-
-
-def _snapshot_attributes(snapshot: ScanRunFinding) -> dict[str, Any] | None:
-    payload = snapshot.finding_snapshot
-    if not isinstance(payload, dict):
-        return None
-    attributes = payload.get("attributes")
-    return attributes if isinstance(attributes, dict) else None
-
-
-def _snapshot_fingerprint(snapshot: ScanRunFinding) -> str | None:
-    attributes = _snapshot_attributes(snapshot)
-    fingerprint = None if attributes is None else attributes.get("fingerprint")
-    return fingerprint if isinstance(fingerprint, str) else None
-
-
-def _snapshot_attributes_details(
-    attributes: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if attributes is None:
-        return None
-    details = attributes.get("details")
-    return dict(details) if isinstance(details, dict) else None
 
 
 def _finding_snapshot(finding: Finding, *, status: str | None = None) -> dict[str, Any]:

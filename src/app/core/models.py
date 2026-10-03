@@ -279,11 +279,13 @@ class ScanRunFinding(Base, TenantOwnedMixin):
     )
 
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_scan_run_findings_tenant_run_finding",
             "tenant_id",
             "scan_run_id",
             "finding_id",
-            name="uq_scan_run_findings_tenant_run_finding",
+            unique=True,
+            postgresql_where=finding_id.is_not(None),
         ),
         Index(
             "ix_scan_run_findings_tenant_run_classification",
