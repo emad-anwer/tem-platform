@@ -8,8 +8,13 @@ from app.core.auth.permissions import Permission, require_permission
 from app.core.errors import COMMON_ERROR_RESPONSES, BadRequestError
 from app.core.pipeline.schemas import (
     CollectionLinks,
+    FindingChangeClassification,
     FindingCollectionDocument,
     FindingResource,
+    ScanRunChangeCounts,
+    ScanRunChangesAttributes,
+    ScanRunChangesDocument,
+    ScanRunChangesResource,
     ScanRunDocument,
     ScanRunResource,
     TargetCollectionDocument,
@@ -24,6 +29,7 @@ router = APIRouter(tags=["pipeline"], responses=COMMON_ERROR_RESPONSES)
 
 _TARGETS_PARAMS = {"size", "cursor"}
 _FINDINGS_PARAMS = {"size", "cursor", "target_id", "scan_run_id"}
+_SCAN_RUN_CHANGES_PARAMS = {"size", "cursor"}
 
 
 def _check_known_params(request: Request, allowed: set[str]) -> None:
@@ -118,6 +124,44 @@ async def get_scan_run(
 ) -> ScanRunDocument:
     scan_run = await service.get_scan_run_or_404(scan_run_id)
     return ScanRunDocument(data=ScanRunResource.from_model(scan_run))
+
+
+@router.get(
+    "/api/v1/scan_runs/{scan_run_id}/changes",
+    response_model=ScanRunChangesDocument,
+    summary="Get findings changed by a scan run",
+)
+async def get_scan_run_changes(
+    scan_run_id: UUID,
+    request: Request,
+    size: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    service: PipelineService = Depends(get_pipeline_service),
+) -> ScanRunChangesDocument:
+    _check_known_params(request, _SCAN_RUN_CHANGES_PARAMS)
+    page, counts, next_cursor = await service.get_scan_run_changes(
+        scan_run_id=scan_run_id, size=size, cursor=cursor
+    )
+    buckets: dict[FindingChangeClassification, list[FindingResource]] = {
+        "new": [],
+        "reappeared": [],
+        "resolved": [],
+        "unchanged": [],
+        "mutated": [],
+    }
+    for item in page:
+        buckets[item.classification].append(
+            FindingResource.model_validate(item.finding_snapshot)
+        )
+    return ScanRunChangesDocument(
+        data=ScanRunChangesResource(
+            id=scan_run_id,
+            attributes=ScanRunChangesAttributes(
+                counts=ScanRunChangeCounts(**counts), findings=buckets
+            ),
+        ),
+        links=_links(request, next_cursor),
+    )
 
 
 @router.get(

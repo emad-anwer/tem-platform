@@ -256,3 +256,48 @@ class Finding(Base, TenantOwnedMixin):
         Index("ix_findings_tenant_status", "tenant_id", "status"),
         Index("ix_findings_tenant_created_at_id", "tenant_id", "created_at", "id"),
     )
+
+
+class ScanRunFinding(Base, TenantOwnedMixin):
+    """Immutable finding snapshot and classification for one scan run."""
+
+    __tablename__ = "scan_run_findings"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    scan_run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    finding_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("findings.id", ondelete="SET NULL"), nullable=True
+    )
+    classification: Mapped[str] = mapped_column(Text, nullable=False)
+    finding_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_scan_run_findings_tenant_run_finding",
+            "tenant_id",
+            "scan_run_id",
+            "finding_id",
+            unique=True,
+            postgresql_where=finding_id.is_not(None),
+        ),
+        Index(
+            "ix_scan_run_findings_tenant_run_classification",
+            "tenant_id",
+            "scan_run_id",
+            "classification",
+        ),
+        Index(
+            "ix_scan_run_findings_tenant_run_created_at_id",
+            "tenant_id",
+            "scan_run_id",
+            "created_at",
+            "id",
+        ),
+    )

@@ -18,8 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.job_context import tenant_job
 from app.core.fingerprint import (
     FindingKind,
-    compute_fingerprint,
-    normalize_finding_value,
 )
 from app.core.jobs.lifecycle import execute_scan_run
 from app.core.jobs.timeouts import outbound_http_timeout
@@ -277,19 +275,12 @@ async def discover_domain(
             }
             for name in sorted(names)
         ]
-        fingerprints = {
-            compute_fingerprint(
-                FindingKind.SUBDOMAIN,
-                target.id,
-                normalize_finding_value(FindingKind.SUBDOMAIN, item["value"]),
-            )
-            for item in items
-        }
-        _, new_findings_count = await repository.upsert_discovery_batch(items)
-        await repository.resolve_missing_discoveries(
+        new_findings_count = await repository.persist_discovery_run(
             target_id=target.id,
-            seen_fingerprints=fingerprints,
+            run_id=run.id,
+            items=items,
             kinds={FindingKind.SUBDOMAIN},
+            degraded=bool(degraded),
         )
     else:
         new_findings_count = 0
