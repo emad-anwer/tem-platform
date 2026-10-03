@@ -1104,6 +1104,7 @@ dependencies = [
     { name = "alembic" },
     { name = "arq" },
     { name = "asyncpg" },
+    { name = "cryptography" },
     { name = "dnspython" },
     { name = "fastapi" },
     { name = "greenlet" },
@@ -1118,7 +1119,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "cryptography" },
     { name = "httpx2" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1131,6 +1131,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.19.1" },
     { name = "arq", specifier = ">=0.26.1" },
     { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "cryptography", specifier = ">=42.0.0" },
     { name = "dnspython", specifier = ">=2.8.0" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "greenlet", specifier = ">=3.1.4" },
@@ -1145,7 +1146,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cryptography", specifier = ">=42.0.0" },
     { name = "httpx2", specifier = ">=2.12.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },

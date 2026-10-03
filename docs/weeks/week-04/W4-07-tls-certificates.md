@@ -23,28 +23,25 @@ For every open port that negotiates TLS, fetch the certificate and record what i
   `high` severity is a policy question, and policy belongs in one place, not in the parser
 - **Feed the SANs back into discovery.** This is the interesting half. `lab-tls-san`'s certificate
   lists `target4.lab.local`, `sub1.target4.lab.local`, `api.target4.lab.local`,
-  `admin.internal.tem.local` and `127.0.0.1`. Four of those are hostnames nobody entered into the
-  system — they are attack surface discovered for free from a host you already had. They become
-  `subdomain` findings on the same target, through the same path W3-07 uses
+  `admin.internal.tem.local` and `127.0.0.1`. The three DNS names under the target domain become
+  `subdomain` findings on the same target, through the same generic finding path W3-07 uses
 - Writes `tls_certificate` findings through W4-03's path, with the identity ADR-0004 chose
 
-**`cryptography` is currently a dev dependency.** It happens to be installed at runtime as a
-transitive dependency of `pyjwt[cryptography]`, which means this would work by accident. Depending
-on a package you did not declare is the bug. Promote it to a runtime dependency in this PR, the same
-move W3-07 made with `httpx`.
+**`cryptography` is a direct runtime dependency.** Do not rely on it arriving transitively through
+`pyjwt[cryptography]`; the scanner imports it directly to parse peer certificates.
 
-Note `admin.internal.tem.local` in that SAN list: it is not a subdomain of the target. Decide what
-happens to a SAN outside the target's domain — record it, skip it, or record it flagged — and say
-why in the PR. W3-07's `_belongs_to_domain` already has an opinion about this; check whether it is
-the right one here.
+SAN policy: retain the full typed SAN list, including IPs and names outside the target domain, in
+the `tls_certificate` finding. Only DNS SANs accepted by W3-07's `_belongs_to_domain` for the
+normalized target domain become `subdomain` findings. This keeps `admin.internal.tem.local` useful
+as certificate data without misclassifying it as a subdomain or expanding the target's discovery
+scope; `127.0.0.1` is retained as an IP SAN, not converted into a hostname finding.
 
 Tests:
 
 - `lab-tls-san` → certificate parsed, all five SANs extracted, self-signed recorded rather than
   raised. (Its TLS port is `8443` from your laptop and `443` from the worker — see W4-04)
-- The four in-scope hostname SANs become subdomain findings
-- The IP SAN (`127.0.0.1`) is handled — however you decided
-- The out-of-domain SAN is handled — however you decided
+- The three in-domain DNS SANs become subdomain findings
+- The IP SAN (`127.0.0.1`) and out-of-domain DNS SAN remain in certificate details only
 - A plain HTTP port is not treated as TLS and does not hang
 - An expired certificate is a finding, not an exception
 

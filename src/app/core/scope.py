@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import ssl
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -590,6 +591,8 @@ async def scoped_open_connection(
     scope: ScanScope | None = None,
     resolve: ResolveFn | None = None,
     limiter: SlidingWindowRateLimiter,
+    ssl_context: ssl.SSLContext | None = None,
+    server_hostname: str | None = None,
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     """Check scope, then connect — to the address that was checked.
 
@@ -610,10 +613,17 @@ async def scoped_open_connection(
 
     await limiter.wait_for_permission(decision.host, operation="tcp")
 
+    connection_options: dict[str, Any] = {}
+    if ssl_context is not None:
+        connection_options["ssl"] = ssl_context
+        connection_options["server_hostname"] = server_hostname or host
+
     last_error: BaseException | None = None
     for address in decision.addresses:
         try:
-            reader, writer = await asyncio.open_connection(str(address), port)
+            reader, writer = await asyncio.open_connection(
+                str(address), port, **connection_options
+            )
             return reader, writer
         except OSError as exc:
             last_error = exc

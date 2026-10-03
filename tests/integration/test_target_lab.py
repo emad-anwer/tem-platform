@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from app.core.rate_limit import SlidingWindowRateLimiter
+from app.core.scope import ScanScope
+from app.modules.asm.scanner.tls_certificate import probe_tls_certificate
+
 LAB_ROOT = Path(__file__).parent.parent.parent
 COMPOSE_FILE = LAB_ROOT / "compose.yaml"
 JUSTFILE = LAB_ROOT / "justfile"
@@ -190,3 +194,33 @@ def test_lab_tls_san_live_probe() -> None:
         assert cipher is not None
         protocol = ssock.version()
         assert protocol in ("TLSv1.2", "TLSv1.3")
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_tls_parser_reads_the_lab_self_signed_certificate() -> None:
+    if not _is_port_open(8443):
+        pytest.skip(
+            "Target lab service lab-tls-san (port 8443) is not running — run `just lab-up`"
+        )
+
+    class AllowAllRedis:
+        async def eval(self, *_args):
+            return [1, 0]
+
+    observation = await probe_tls_certificate(
+        "127.0.0.1",
+        8443,
+        scope=ScanScope.parse(["127.0.0.1:8443"]),
+        limiter=SlidingWindowRateLimiter(redis=AllowAllRedis()),
+    )
+
+    assert observation is not None
+    assert observation.details["subject_common_name"] == "target4.lab.local"
+    assert {san["value"] for san in observation.details["sans"]} == {
+        "target4.lab.local",
+        "sub1.target4.lab.local",
+        "api.target4.lab.local",
+        "admin.internal.tem.local",
+        "127.0.0.1",
+    }
