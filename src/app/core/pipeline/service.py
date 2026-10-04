@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 import structlog
@@ -16,10 +17,15 @@ from app.core.errors import (
     ValidationError,
 )
 from app.core.jobs.states import ScanRunStatus
-from app.core.models import Finding, ScanRun, Target
+from app.core.models import Finding, ScanRun, ScanRunFinding, Target
 from app.core.pipeline.validation import TargetKind, normalize_target
 from app.core.redis import get_arq_pool
-from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
+from app.core.repository import (
+    FindingRepository,
+    ScanRunFindingRepository,
+    ScanRunRepository,
+    TargetRepository,
+)
 from app.core.scope import check_scope
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +46,9 @@ class PipelineService:
         self._targets = TargetRepository(session, tenant_id=principal.tenant_id)
         self._scan_runs = ScanRunRepository(session, tenant_id=principal.tenant_id)
         self._findings = FindingRepository(session, tenant_id=principal.tenant_id)
+        self._run_findings = ScanRunFindingRepository(
+            session, tenant_id=principal.tenant_id
+        )
 
     # ----------------Targets---------------
     async def create_target(self, *, kind: TargetKind, value: str) -> Target:
@@ -151,6 +160,24 @@ class PipelineService:
         if scan_run is None:
             raise NotFoundError(detail=f"Scan run '{scan_run_id}' not found.")
         return scan_run
+
+    async def get_scan_run_changes(
+        self, *, scan_run_id: UUID, size: int, cursor: str | None
+    ) -> tuple[Sequence[ScanRunFinding], dict[str, int], str | None]:
+        scan_run = await self.get_scan_run_or_404(scan_run_id)
+        if scan_run.status != ScanRunStatus.SUCCEEDED.value:
+            raise ConflictError(
+                detail="Changes are available only for successful scan runs."
+            )
+        try:
+            return await self._run_findings.list_changes(
+                scan_run_id=scan_run.id, limit=size, cursor=cursor
+            )
+        except ValueError as exc:
+            raise ValidationError(
+                detail="Invalid cursor value.",
+                errors=[{"field": "cursor", "message": str(exc)}],
+            ) from exc
 
     # ------------------Findings---------------
     async def list_findings(

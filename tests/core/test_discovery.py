@@ -15,7 +15,12 @@ from app.core.discovery import (
     discover_domain,
 )
 from app.core.fingerprint import FindingKind
-from app.core.repository import FindingRepository, ScanRunRepository, TargetRepository
+from app.core.repository import (
+    FindingRepository,
+    ScanRunFindingRepository,
+    ScanRunRepository,
+    TargetRepository,
+)
 from app.core.scope import ScopeReason, ScopeViolationError
 
 
@@ -95,11 +100,27 @@ async def test_discovery_upsert_is_idempotent_and_tenant_scoped(
             target_id=target_ids[0], max_attempts=3
         )
         await discover_domain({"db": db_session}, run, sources=(StaticSource(),))
+        run.status = "succeeded"
+        db_session.add(run)
+        await db_session.commit()
         run_results.append(run)
         await asyncio.sleep(0.001)
 
     assert [run.new_findings_count for run in run_results] == [2, 0, 0]
     assert [run.findings_count for run in run_results] == [2, 2, 2]
+    run_snapshots = ScanRunFindingRepository(db_session)
+    classifications = [
+        [
+            snapshot.classification
+            for snapshot in await run_snapshots.list_for_run(run.id)
+        ]
+        for run in run_results
+    ]
+    assert [sorted(items) for items in classifications] == [
+        ["new", "new"],
+        ["unchanged", "unchanged"],
+        ["unchanged", "unchanged"],
+    ]
 
     findings_a, _ = await FindingRepository(db_session).list()
     assert len(findings_a) == 2
@@ -119,6 +140,9 @@ async def test_discovery_upsert_is_idempotent_and_tenant_scoped(
         target_id=target_ids[1], max_attempts=3
     )
     await discover_domain({"db": db_session}, run_b, sources=(StaticSource(),))
+    run_b.status = "succeeded"
+    db_session.add(run_b)
+    await db_session.commit()
 
     findings_b, _ = await FindingRepository(db_session).list()
     assert len(findings_b) == 2
@@ -142,6 +166,9 @@ async def test_discovery_keeps_missing_findings_as_resolved(
         target_id=target.id, max_attempts=3
     )
     await discover_domain({"db": db_session}, run, sources=(StaticSource(),))
+    run.status = "succeeded"
+    db_session.add(run)
+    await db_session.commit()
 
     second_run = await ScanRunRepository(db_session).create(
         target_id=target.id, max_attempts=3
@@ -151,13 +178,75 @@ async def test_discovery_keeps_missing_findings_as_resolved(
         second_run,
         sources=(StaticSource(set()),),
     )
+    second_run.status = "succeeded"
+    db_session.add(second_run)
+    await db_session.commit()
+
+    third_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    await discover_domain({"db": db_session}, third_run, sources=(StaticSource(),))
+    third_run.status = "succeeded"
+    db_session.add(third_run)
+    await db_session.commit()
 
     findings, _ = await FindingRepository(db_session).list()
     assert len(findings) == 2
     assert {finding.value: finding.status for finding in findings} == {
         "example.com": "active",
-        "admin.example.com": "resolved",
+        "admin.example.com": "active",
     }
+    findings_by_value = {finding.value: finding for finding in findings}
+    assert findings_by_value["admin.example.com"].times_seen == 2
+    snapshots = ScanRunFindingRepository(db_session)
+    second_classifications = [
+        item.classification for item in await snapshots.list_for_run(second_run.id)
+    ]
+    assert second_classifications.count("resolved") == 1
+    assert second_classifications.count("unchanged") == 1
+    assert {
+        item.classification for item in await snapshots.list_for_run(third_run.id)
+    } == {"reappeared", "unchanged"}
+
+
+@pytest.mark.asyncio
+async def test_degraded_source_carries_missing_findings_as_unchanged(
+    db_session, two_tenants
+) -> None:
+    tenant, _ = two_tenants
+    set_current_principal(
+        Principal(user_id="user-a", tenant_id=tenant.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="example.com", value_normalized="example.com"
+    )
+    first_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    await discover_domain({"db": db_session}, first_run, sources=(StaticSource(),))
+    first_run.status = "succeeded"
+    db_session.add(first_run)
+    await db_session.commit()
+
+    class DegradedSource:
+        name = "crtsh"
+
+        async def collect(self, domain: str) -> SourceResult:
+            return SourceResult(set(), degraded=True)
+
+    second_run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    await discover_domain({"db": db_session}, second_run, sources=(DegradedSource(),))
+    second_run.status = "succeeded"
+    db_session.add(second_run)
+    await db_session.commit()
+
+    findings, _ = await FindingRepository(db_session).list()
+    assert all(finding.status == "active" for finding in findings)
+    snapshots = await ScanRunFindingRepository(db_session).list_for_run(second_run.id)
+    assert len(snapshots) == 2
+    assert {item.classification for item in snapshots} == {"unchanged"}
 
 
 @pytest.mark.asyncio
@@ -248,6 +337,44 @@ async def test_subdomain_scan_does_not_resolve_other_finding_kinds(
         (FindingKind.OPEN_PORT, "admin.example.com:443/tcp"): "active",
         (FindingKind.SUBDOMAIN, "example.com"): "active",
     }
+
+
+@pytest.mark.asyncio
+async def test_port_only_resolution_does_not_resolve_subdomain_findings(
+    db_session, two_tenants
+) -> None:
+    tenant, _ = two_tenants
+    set_current_principal(
+        Principal(user_id="user-a", tenant_id=tenant.id, role=Role.OWNER)
+    )
+    target = await TargetRepository(db_session).create(
+        kind="domain", value="example.com", value_normalized="example.com"
+    )
+    run = await ScanRunRepository(db_session).create(
+        target_id=target.id, max_attempts=3
+    )
+    findings = FindingRepository(db_session)
+    await findings.upsert_discovery_batch(
+        [
+            {
+                "target_id": target.id,
+                "run_id": run.id,
+                "kind": FindingKind.SUBDOMAIN,
+                "value": "admin.example.com",
+            }
+        ]
+    )
+
+    await findings.resolve_missing_discoveries(
+        target_id=target.id,
+        seen_fingerprints=set(),
+        kinds={FindingKind.OPEN_PORT},
+    )
+
+    stored, _ = await findings.list()
+    assert len(stored) == 1
+    assert stored[0].kind == FindingKind.SUBDOMAIN
+    assert stored[0].status == "active"
 
 
 @pytest.mark.asyncio

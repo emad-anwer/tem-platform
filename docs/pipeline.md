@@ -208,3 +208,30 @@ degraded. Do not "fix" it by retrying the whole scan in a loop; wait and rescan.
 If step 2 succeeds but the row still says degraded, it is our bug — look at the
 worker's outbound timeouts and the `respx` fixtures in `tests/test_discovery.py`
 (502 + timeout cases) to reproduce it offline.
+
+## 8. Run-to-run finding changes
+
+Read `GET /api/v1/scan_runs/{id}/changes` after a run succeeds. The response
+contains total counts for `new`, `reappeared`, `resolved`, `unchanged`, and
+`mutated`, plus one cursor-paginated page of finding resources grouped into
+those buckets. `size` and `cursor` use the same created-at/id cursor contract as
+the other pipeline collections. The baseline is the target's most recent
+successful run; failed runs are ignored.
+
+`scan_run_findings` stores an immutable finding snapshot and its classification
+for each run. The `findings` row remains the current state: `first_seen_at` is
+never reset, `last_seen_at` and `times_seen` advance on re-observation, and a
+resolved finding is retained so it can later be classified as `reappeared`.
+`ScanRun.findings_count` and `new_findings_count` remain the persisted run
+counters; the other bucket counts are derived from the run snapshots.
+
+If any source for a run is degraded, findings absent from that run are not
+resolved. Active findings in the kinds that run produces are carried into its
+snapshot as `unchanged`, because an incomplete source result is not evidence
+that an asset disappeared. Resolution is scoped to the kinds the scanner
+produces, so a port-only run cannot resolve subdomain findings.
+
+This GET route has no separate read permission in
+`src/app/core/auth/permissions.py`; every authenticated role can read within
+its tenant, matching the current pipeline GET routes. Revisit this before
+week-6 alerts introduce more sensitive read surfaces.

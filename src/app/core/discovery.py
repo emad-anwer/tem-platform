@@ -17,8 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.job_context import tenant_job
 from app.core.fingerprint import (
     FindingKind,
-    compute_fingerprint,
-    normalize_finding_value,
 )
 from app.core.jobs.lifecycle import execute_scan_run
 from app.core.jobs.timeouts import outbound_http_timeout
@@ -247,44 +245,6 @@ async def _resolve_with_dns(
                 degradation_notes.append(f"{dns_source.name}: {dns_result.note}")
 
 
-async def _persist_discoveries(
-    session: AsyncSession,
-    target: Target,
-    run: ScanRun,
-    names: set[str],
-    *,
-    persist_finding: bool,
-) -> int:
-    """Upsert findings for one run. Returns the new-findings count."""
-    if not persist_finding:
-        return 0
-    repository = FindingRepository(session)
-    items = [
-        {
-            "target_id": target.id,
-            "run_id": run.id,
-            "kind": FindingKind.SUBDOMAIN,
-            "value": name,
-        }
-        for name in sorted(names)
-    ]
-    fingerprints = {
-        compute_fingerprint(
-            FindingKind.SUBDOMAIN,
-            target.id,
-            normalize_finding_value(FindingKind.SUBDOMAIN, item["value"]),
-        )
-        for item in items
-    }
-    _, new_findings_count = await repository.upsert_discovery_batch(items)
-    await repository.resolve_missing_discoveries(
-        target_id=target.id,
-        seen_fingerprints=fingerprints,
-        kinds={FindingKind.SUBDOMAIN},
-    )
-    return new_findings_count
-
-
 async def discover_domain(
     ctx: dict[str, Any],
     run: ScanRun,
@@ -332,9 +292,26 @@ async def discover_domain(
         degradation_notes,
     )
 
-    new_findings_count = await _persist_discoveries(
-        ctx["db"], target, run, names, persist_finding=persist_finding
-    )
+    if persist_finding:
+        repository = FindingRepository(ctx["db"])
+        items = [
+            {
+                "target_id": target.id,
+                "run_id": run.id,
+                "kind": FindingKind.SUBDOMAIN,
+                "value": name,
+            }
+            for name in sorted(names)
+        ]
+        new_findings_count = await repository.persist_discovery_run(
+            target_id=target.id,
+            run_id=run.id,
+            items=items,
+            kinds={FindingKind.SUBDOMAIN},
+            degraded=bool(degraded),
+        )
+    else:
+        new_findings_count = 0
 
     run.findings_count = len(names)
     run.new_findings_count = new_findings_count
