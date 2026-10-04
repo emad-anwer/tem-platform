@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 import structlog
@@ -148,11 +148,20 @@ async def _read_bounded(response: httpx.Response) -> tuple[bytes, bool]:
 
 
 def _redirect_destination(current: str, location: str) -> str | None:
-    candidate = urljoin(current, location)
-    parsed = urlsplit(candidate)
+    try:
+        parsed = urlsplit(urljoin(current, location))
+        port = parsed.port
+    except ValueError:
+        return None
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         return None
-    return candidate
+    # Location is hostile input. Userinfo can be a credential and must never
+    # reach an outbound request, a finding, or a log line.
+    host = parsed.hostname
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
 
 
 async def probe_http_service(

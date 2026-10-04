@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 from uuid import UUID
 
-from app.core.fingerprint import (
-    FindingKind,
-    compute_fingerprint,
-    normalize_finding_value,
-)
-from app.core.repository import FindingRepository
+from app.core.fingerprint import FindingKind
+from app.core.repository import DiscoveryPersistenceSummary, FindingRepository
 from app.modules.asm.scanner.http_prober import HTTPService, probe_open_ports
 from app.modules.asm.scanner.port_scanner import PortScanReport, PortState, scan_host
 
@@ -28,10 +25,10 @@ async def record_http_services(
     target_id: UUID,
     run_id: UUID,
     services: list[HTTPService],
+    degraded: bool,
 ) -> PortFindingsSummary:
-    """Write bounded HTTP observations through the standard finding upsert path."""
+    """Persist HTTP observations and this run's snapshots atomically."""
     items = []
-    seen: set[str] = set()
     for service in services:
         value = service.value
         items.append(
@@ -55,20 +52,20 @@ async def record_http_services(
                 },
             }
         )
-        seen.add(
-            compute_fingerprint(
-                FindingKind.HTTP_SERVICE,
-                target_id,
-                normalize_finding_value(FindingKind.HTTP_SERVICE, value),
-            )
-        )
-    total, new = await repo.upsert_discovery_batch(items)
-    resolved = await repo.resolve_missing_discoveries(
-        target_id=target_id,
-        seen_fingerprints=seen,
-        kinds={FindingKind.HTTP_SERVICE},
+    summary = cast(
+        DiscoveryPersistenceSummary,
+        await repo.persist_discovery_run(
+            target_id=target_id,
+            run_id=run_id,
+            items=items,
+            kinds={FindingKind.HTTP_SERVICE},
+            degraded=degraded,
+            return_summary=True,
+        ),
     )
-    return PortFindingsSummary(total=total, new=new, resolved=resolved)
+    return PortFindingsSummary(
+        total=summary.total, new=summary.new, resolved=summary.resolved
+    )
 
 
 def open_port_value(host: str, port: int) -> str:
@@ -83,9 +80,8 @@ async def record_port_scan(
     host: str,
     report: PortScanReport,
 ) -> PortFindingsSummary:
-    """Upsert this scan's open ports. resolve open_port findings not seen."""
+    """Persist open ports and this run's snapshots atomically."""
     items = []
-    seen: set[str] = set()
     for result in report.results:
         if result.state is not PortState.OPEN:
             continue
@@ -100,24 +96,22 @@ async def record_port_scan(
                 "details": {"port": result.port, "protocol": PROTOCOL},
             }
         )
-        seen.add(
-            compute_fingerprint(
-                FindingKind.OPEN_PORT,
-                target_id,
-                normalize_finding_value(FindingKind.OPEN_PORT, value),
-            )
-        )
-
-    total, new = await repo.upsert_discovery_batch(items)
-
-    resolved = 0
-    if report.attempted > 0:  # a fully out-of-scope scan observed nothing
-        resolved = await repo.resolve_missing_discoveries(
+    summary = cast(
+        DiscoveryPersistenceSummary,
+        await repo.persist_discovery_run(
             target_id=target_id,
-            seen_fingerprints=seen,
+            run_id=run_id,
+            items=items,
             kinds={FindingKind.OPEN_PORT},
-        )
-    return PortFindingsSummary(total=total, new=new, resolved=resolved)
+            # Preserve the existing behaviour for a fully out-of-scope scan:
+            # it observes nothing and must not resolve prior open-port findings.
+            degraded=report.attempted == 0,
+            return_summary=True,
+        ),
+    )
+    return PortFindingsSummary(
+        total=summary.total, new=summary.new, resolved=summary.resolved
+    )
 
 
 async def scan_and_record(
@@ -149,6 +143,13 @@ async def scan_probe_and_record(
     )
     services = await probe_open_ports(host, report.open_ports)
     http_summary = await record_http_services(
-        repo, target_id=target_id, run_id=run_id, services=services
+        repo,
+        target_id=target_id,
+        run_id=run_id,
+        services=services,
+        # No HTTP result from one or more open ports is ambiguous: it may be
+        # a non-HTTP service, but it may also be a transient probe outage.
+        # Do not resolve prior HTTP findings on an all-negative run.
+        degraded=bool(report.open_ports) and not services,
     )
     return report, port_summary, http_summary

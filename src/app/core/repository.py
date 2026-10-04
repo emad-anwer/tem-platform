@@ -1,6 +1,7 @@
 """Database access for shared platform entities."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
@@ -40,6 +41,15 @@ _LIMIT_MUST_BE_POSITIVE = "limit must be greater than 0."
 # All chunks within a batch share a single transaction (one commit, all-or-nothing),
 # so row/table locks acquired by the transaction are still held until commit/rollback.
 DEFAULT_INSERT_CHUNK_SIZE = 500
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryPersistenceSummary:
+    """Counts produced by one atomic discovery persistence operation."""
+
+    total: int
+    new: int
+    resolved: int
 
 
 class MissingTenantContextError(RuntimeError):
@@ -953,7 +963,8 @@ class FindingRepository(TenantScopedRepository[Finding]):
         items: Sequence[dict[str, Any]],
         kinds: set[FindingKind],
         degraded: bool = False,
-    ) -> int:
+        return_summary: bool = False,
+    ) -> int | DiscoveryPersistenceSummary:
         """Upsert a scanner's findings and persist its generic run-to-run diff.
 
         The pre-upsert finding row is the single source for the previous
@@ -1046,7 +1057,16 @@ class FindingRepository(TenantScopedRepository[Finding]):
         except Exception:
             await self._session.rollback()
             raise
-        return sum(snapshot["classification"] == "new" for snapshot in snapshots)
+        summary = DiscoveryPersistenceSummary(
+            total=len(observed),
+            new=sum(snapshot["classification"] == "new" for snapshot in snapshots),
+            resolved=sum(
+                snapshot["classification"] == "resolved" for snapshot in snapshots
+            ),
+        )
+        # Keep the original return contract for discovery.py and every current
+        # caller. Producers that need all counters explicitly opt in.
+        return summary if return_summary else summary.new
 
     async def resolve_missing_discoveries(
         self,

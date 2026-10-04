@@ -6,6 +6,7 @@ from app.modules.asm.scanner.http_prober import (
     MAX_BODY_BYTES,
     MAX_HEADER_VALUE_LENGTH,
     MAX_TITLE_LENGTH,
+    _redirect_destination,
     probe_http_service,
 )
 
@@ -140,3 +141,28 @@ async def test_off_scope_redirect_is_recorded_but_never_followed():
     assert result.status_code == 302
     assert result.redirects_followed == 0
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_redirect_userinfo_is_never_followed_or_stored():
+    secret = "s3cret"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            return httpx.Response(
+                302,
+                headers={"Location": f"http://admin:{secret}@lab-nginx/next"},
+                request=request,
+            )
+        assert request.url.userinfo == b""
+        return httpx.Response(200, request=request)
+
+    result = await probe_http_service("lab-nginx", 80, client_factory=_client(handler))
+
+    assert result is not None
+    assert result.final_url == "http://lab-nginx/next"
+    assert secret not in repr(result)
+    assert (
+        _redirect_destination("http://lab-nginx/", f"http://admin:{secret}@lab-nginx/")
+        == "http://lab-nginx/"
+    )
