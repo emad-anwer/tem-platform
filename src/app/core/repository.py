@@ -1,6 +1,7 @@
 """Database access for shared platform entities."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
@@ -40,6 +41,15 @@ _LIMIT_MUST_BE_POSITIVE = "limit must be greater than 0."
 # All chunks within a batch share a single transaction (one commit, all-or-nothing),
 # so row/table locks acquired by the transaction are still held until commit/rollback.
 DEFAULT_INSERT_CHUNK_SIZE = 500
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryPersistenceSummary:
+    """Counts produced by one atomic discovery persistence operation."""
+
+    total: int
+    new: int
+    resolved: int
 
 
 class MissingTenantContextError(RuntimeError):
@@ -457,6 +467,38 @@ class TargetRepository(TenantScopedRepository[Target]):
         return items, self._encode_cursor(items[-1])
 
 
+async def fail_stale_scan_runs(session: AsyncSession, *, before: datetime) -> int:
+    """Platform-level reaper: fail runs stuck in ``running`` before ``before``.
+
+    Deliberately unscoped — the stale-run sweeper (W4-09) has no tenant, and
+    a worker killed holding any tenant's run must still be reaped. Tenant
+    scoping is enforced everywhere a tenant exists; here there is none, so
+    going through ``TenantScopedRepository`` would demand a phantom tenant.
+    Idempotent: only ``running`` rows match, so a second call finds nothing.
+
+    One UPDATE statement, not SELECT-then-loop: the filter guarantees every
+    matched row is ``running``, so there is no transition to validate and no
+    reason to materialize rows the sweeper never reads.
+    """
+    result = await session.execute(
+        update(ScanRun)
+        .where(
+            ScanRun.status == ScanRunStatus.RUNNING,
+            ScanRun.started_at < before,
+        )
+        .values(
+            status=ScanRunStatus.FAILED,
+            error_kind="stale",
+            error_message="stale: worker exceeded its deadline",
+            finished_at=datetime.now(UTC),
+        )
+    )
+    marked = result.rowcount
+    if marked:
+        await session.commit()
+    return marked
+
+
 class ScanRunRepository(TenantScopedRepository[ScanRun]):
     """Tenant-scoped repository for ScanRuns."""
 
@@ -568,22 +610,7 @@ class ScanRunRepository(TenantScopedRepository[ScanRun]):
         return run
 
     async def fail_stale(self, *, before: datetime) -> int:
-        result = await self._session.execute(
-            select(self.model).where(
-                self.model.status == ScanRunStatus.RUNNING,
-                self.model.started_at < before,
-            )
-        )
-        runs = list(result.scalars().all())
-        for run in runs:
-            transition_status(run.status, ScanRunStatus.FAILED)
-            run.status = ScanRunStatus.FAILED
-            run.error_kind = "stale"
-            run.error_message = "stale: worker exceeded its deadline"
-            run.finished_at = datetime.now(UTC)
-        if runs:
-            await self._session.commit()
-        return len(runs)
+        return await fail_stale_scan_runs(self._session, before=before)
 
     async def _finish(self, run_id: UUID | str, status: ScanRunStatus) -> ScanRun:
         run = await self.get_by_id(run_id)
@@ -953,7 +980,8 @@ class FindingRepository(TenantScopedRepository[Finding]):
         items: Sequence[dict[str, Any]],
         kinds: set[FindingKind],
         degraded: bool = False,
-    ) -> int:
+        return_summary: bool = False,
+    ) -> int | DiscoveryPersistenceSummary:
         """Upsert a scanner's findings and persist its generic run-to-run diff.
 
         The pre-upsert finding row is the single source for the previous
@@ -1046,7 +1074,16 @@ class FindingRepository(TenantScopedRepository[Finding]):
         except Exception:
             await self._session.rollback()
             raise
-        return sum(snapshot["classification"] == "new" for snapshot in snapshots)
+        summary = DiscoveryPersistenceSummary(
+            total=len(observed),
+            new=sum(snapshot["classification"] == "new" for snapshot in snapshots),
+            resolved=sum(
+                snapshot["classification"] == "resolved" for snapshot in snapshots
+            ),
+        )
+        # Keep the original return contract for discovery.py and every current
+        # caller. Producers that need all counters explicitly opt in.
+        return summary if return_summary else summary.new
 
     async def resolve_missing_discoveries(
         self,

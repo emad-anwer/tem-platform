@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import json
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -49,6 +48,7 @@ class ScanSource(Protocol):
 
     async def collect(self, domain: str) -> SourceResult:
         """Return candidate hostnames and degrade instead of raising upstream errors."""
+        ...
 
 
 class DNSSource:
@@ -174,7 +174,7 @@ class CertificateTransparencySource:
             )
             response.raise_for_status()
             payload = response.json()
-        except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValueError):
+        except (httpx.HTTPError, TypeError, ValueError):
             return SourceResult(set(), degraded=True, note="crt.sh unavailable")
 
         names: set[str] = set()
@@ -190,16 +190,11 @@ class CertificateTransparencySource:
         return SourceResult(names)
 
 
-async def discover_domain(
-    ctx: dict[str, Any],
-    run: ScanRun,
-    *,
-    sources: Iterable[ScanSource],
-    max_results: int = DEFAULT_MAX_RESULTS,
-    persist_finding: bool = True,
-) -> None:
-    """Collect, normalize, resolve, and persist passive domain discoveries."""
-    target = await _get_target(ctx["db"], run.target_id)
+async def _load_domain_target(
+    session: AsyncSession, target_id: Any
+) -> tuple[Target, str]:
+    """Fetch the target, validate it as a domain, and re-check scope in-worker."""
+    target = await _get_target(session, target_id)
     if target.kind != "domain":
         raise ValueError("Only domain targets can use subdomain discovery.")
     domain = _normalise_hostname(target.value_normalized)
@@ -211,6 +206,55 @@ async def discover_domain(
     # raises ScopeViolationError, which execute_scan_run turns into a terminal
     # failure instead of a retry loop.
     await check_scope(domain)
+    return target, domain
+
+
+def _merge_source_results(
+    source_list: list[ScanSource],
+    results: list[SourceResult],
+    names: set[str],
+    degraded: list[str],
+    degradation_notes: list[str],
+) -> None:
+    """Fold one round of source results into the shared name/degraded sets."""
+    for source, result in zip(source_list, results, strict=True):
+        names.update(result.items)
+        if result.degraded:
+            degraded.append(source.name)
+            if result.note:
+                degradation_notes.append(f"{source.name}: {result.note}")
+
+
+async def _resolve_with_dns(
+    source_list: list[ScanSource],
+    names: set[str],
+    degraded: list[str],
+    degradation_notes: list[str],
+) -> None:
+    """Resolve everything collected so far through the DNS source, if present."""
+    dns_source = next(
+        (source for source in source_list if isinstance(source, DNSSource)), None
+    )
+    if dns_source is not None:
+        dns_result = await dns_source.resolve_many(names)
+        names.update(dns_result.items)
+        if dns_result.degraded:
+            if dns_source.name not in degraded:
+                degraded.append(dns_source.name)
+            if dns_result.note:
+                degradation_notes.append(f"{dns_source.name}: {dns_result.note}")
+
+
+async def discover_domain(
+    ctx: dict[str, Any],
+    run: ScanRun,
+    *,
+    sources: Iterable[ScanSource],
+    max_results: int = DEFAULT_MAX_RESULTS,
+    persist_finding: bool = True,
+) -> None:
+    """Collect, normalize, resolve, and persist passive domain discoveries."""
+    target, domain = await _load_domain_target(ctx["db"], run.target_id)
 
     source_list = list(sources)
     deadline = ctx.get("scan_deadline_monotonic")
@@ -231,24 +275,8 @@ async def discover_domain(
     names = {domain}
     degraded: list[str] = []
     degradation_notes: list[str] = []
-    for source, result in zip(source_list, results, strict=True):
-        names.update(result.items)
-        if result.degraded:
-            degraded.append(source.name)
-            if result.note:
-                degradation_notes.append(f"{source.name}: {result.note}")
-
-    dns_source = next(
-        (source for source in source_list if isinstance(source, DNSSource)), None
-    )
-    if dns_source is not None:
-        dns_result = await dns_source.resolve_many(names)
-        names.update(dns_result.items)
-        if dns_result.degraded:
-            if dns_source.name not in degraded:
-                degraded.append(dns_source.name)
-            if dns_result.note:
-                degradation_notes.append(f"{dns_source.name}: {dns_result.note}")
+    _merge_source_results(source_list, results, names, degraded, degradation_notes)
+    await _resolve_with_dns(source_list, names, degraded, degradation_notes)
 
     names = {
         name

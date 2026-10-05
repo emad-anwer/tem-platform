@@ -698,6 +698,7 @@ def scoped_http_client(
     scope: ScanScope | None = None,
     resolve: ResolveFn | None = None,
     limiter: SlidingWindowRateLimiter | None = None,
+    verify: bool = True,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """An ``httpx`` client that cannot reach an out-of-scope host.
@@ -709,7 +710,10 @@ def scoped_http_client(
     """
     return httpx.AsyncClient(
         transport=ScopedAsyncHTTPTransport(
-            scope=scope, resolve=resolve, limiter=limiter
+            scope=scope,
+            resolve=resolve,
+            limiter=limiter,
+            transport=httpx.AsyncHTTPTransport(verify=verify),
         ),
         **kwargs,
     )
