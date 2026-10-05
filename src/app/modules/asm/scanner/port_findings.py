@@ -5,10 +5,17 @@ from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
 
+from app.core.discovery import _belongs_to_domain, _normalise_hostname
 from app.core.fingerprint import FindingKind
 from app.core.repository import DiscoveryPersistenceSummary, FindingRepository
 from app.modules.asm.scanner.http_prober import HTTPService, probe_open_ports
-from app.modules.asm.scanner.port_scanner import PortScanReport, PortState, scan_host
+from app.modules.asm.scanner.port_scanner import (
+    PortResult,
+    PortScanReport,
+    PortState,
+    scan_host,
+)
+from app.modules.asm.scanner.tls_certificate import probe_tls_certificate
 
 PROTOCOL = "tcp"
 TLS_PROBE_CONCURRENCY = 10
@@ -84,7 +91,12 @@ async def record_port_scan(
     report: PortScanReport,
 ) -> PortFindingsSummary:
     """Persist open ports and this run's snapshots atomically."""
+    normalized_domain = _normalise_hostname(domain)
+    if not normalized_domain:
+        raise ValueError("domain must be a valid hostname")
+
     items = []
+    open_results: list[PortResult] = []
     for result in report.results:
         if result.state is not PortState.OPEN:
             continue
@@ -100,13 +112,58 @@ async def record_port_scan(
                 "details": {"port": result.port, "protocol": PROTOCOL},
             }
         )
+
+    semaphore = asyncio.Semaphore(TLS_PROBE_CONCURRENCY)
+
+    async def inspect_tls(result: PortResult):
+        async with semaphore:
+            return await probe_tls_certificate(host, result.port)
+
+    observations = await asyncio.gather(
+        *(inspect_tls(result) for result in open_results)
+    )
+    seen_san_names: set[str] = set()
+    for result, observation in zip(open_results, observations, strict=True):
+        if observation is None:
+            continue
+        certificate_value = f"{host}:{result.port}"
+        items.append(
+            {
+                "target_id": target_id,
+                "run_id": run_id,
+                "kind": FindingKind.TLS_CERTIFICATE,
+                "value": certificate_value,
+                "severity": "info",
+                "details": observation.details,
+            }
+        )
+        for san_name in observation.dns_names:
+            normalized_name = _normalise_hostname(san_name)
+            if (
+                normalized_name
+                and normalized_name not in seen_san_names
+                and _belongs_to_domain(normalized_name, normalized_domain)
+            ):
+                seen_san_names.add(normalized_name)
+                items.append(
+                    {
+                        "target_id": target_id,
+                        "run_id": run_id,
+                        "kind": FindingKind.SUBDOMAIN,
+                        "value": normalized_name,
+                        "severity": "info",
+                    }
+                )
+
     summary = cast(
         DiscoveryPersistenceSummary,
         await repo.persist_discovery_run(
             target_id=target_id,
             run_id=run_id,
             items=items,
-            kinds={FindingKind.OPEN_PORT},
+            # SAN subdomains are additive observations, not an authoritative
+            # inventory; never resolve existing subdomains from a certificate.
+            kinds={FindingKind.OPEN_PORT, FindingKind.TLS_CERTIFICATE},
             # Preserve the existing behaviour for a fully out-of-scope scan:
             # it observes nothing and must not resolve prior open-port findings.
             degraded=report.attempted == 0,

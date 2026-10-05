@@ -5,8 +5,16 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.auth.context import set_current_principal
+from app.core.auth.principal import Principal, Role
 from app.core.fingerprint import FindingKind
-from app.core.repository import DiscoveryPersistenceSummary
+from app.core.repository import (
+    DiscoveryPersistenceSummary,
+    FindingRepository,
+    ScanRunRepository,
+    TargetRepository,
+)
+from app.modules.asm.scanner import port_findings
 from app.modules.asm.scanner.http_prober import HTTPService
 from app.modules.asm.scanner.port_findings import record_http_services, record_port_scan
 from app.modules.asm.scanner.port_scanner import PortResult, PortScanReport, PortState
@@ -58,7 +66,10 @@ async def test_open_ports_become_kind_scoped_open_port_findings(monkeypatch):
     assert items[0]["details"] == {"port": 80, "protocol": "tcp"}  # stable keys only
     probe.assert_awaited_once_with("lab-nginx", 80)
 
-    assert kwargs["kinds"] == {FindingKind.OPEN_PORT}
+    assert kwargs["kinds"] == {
+        FindingKind.OPEN_PORT,
+        FindingKind.TLS_CERTIFICATE,
+    }
     assert kwargs["degraded"] is False
     assert kwargs["return_summary"] is True
     assert (summary.total, summary.new, summary.resolved) == (1, 1, 0)
@@ -67,8 +78,7 @@ async def test_open_ports_become_kind_scoped_open_port_findings(monkeypatch):
 @pytest.mark.asyncio
 async def test_certificate_sans_write_only_in_domain_dns_names(monkeypatch):
     repo = AsyncMock()
-    repo.upsert_discovery_batch.return_value = (5, 5)
-    repo.resolve_missing_discoveries.return_value = 0
+    repo.persist_discovery_run.return_value = DiscoveryPersistenceSummary(5, 5, 0)
     target_id, run_id = uuid4(), uuid4()
     observation = TLSCertificateObservation(
         details={
@@ -99,7 +109,8 @@ async def test_certificate_sans_write_only_in_domain_dns_names(monkeypatch):
         report=_report([PortResult(443, PortState.OPEN)]),
     )
 
-    (items,), _ = repo.upsert_discovery_batch.call_args
+    kwargs = repo.persist_discovery_run.call_args.kwargs
+    items = kwargs["items"]
     assert [item["kind"] for item in items] == [
         FindingKind.OPEN_PORT,
         FindingKind.TLS_CERTIFICATE,
@@ -114,11 +125,11 @@ async def test_certificate_sans_write_only_in_domain_dns_names(monkeypatch):
         "sub1.target4.lab.local",
         "api.target4.lab.local",
     ]
-    resolved = repo.resolve_missing_discoveries.call_args.kwargs
-    assert resolved["kinds"] == {
+    assert kwargs["kinds"] == {
         FindingKind.OPEN_PORT,
         FindingKind.TLS_CERTIFICATE,
     }
+    assert kwargs["return_summary"] is True
 
 
 @pytest.mark.asyncio
