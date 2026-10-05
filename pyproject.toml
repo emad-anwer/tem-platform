@@ -18,6 +18,7 @@ dependencies = [
     # small enough that an intern can read the whole library in an afternoon.
     "arq>=0.26.1",
     "asyncpg>=0.31.0",
+    "cryptography>=42.0.0",
     "dnspython>=2.8.0",
     "fastapi>=0.141.1",
     "greenlet>=3.1.4",
@@ -32,7 +33,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "cryptography>=42.0.0",
     "httpx2>=2.12.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",

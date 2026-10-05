@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
@@ -10,6 +11,7 @@ from app.modules.asm.scanner.http_prober import HTTPService, probe_open_ports
 from app.modules.asm.scanner.port_scanner import PortScanReport, PortState, scan_host
 
 PROTOCOL = "tcp"
+TLS_PROBE_CONCURRENCY = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +80,7 @@ async def record_port_scan(
     target_id: UUID,
     run_id: UUID,
     host: str,
+    domain: str,
     report: PortScanReport,
 ) -> PortFindingsSummary:
     """Persist open ports and this run's snapshots atomically."""
@@ -85,6 +88,7 @@ async def record_port_scan(
     for result in report.results:
         if result.state is not PortState.OPEN:
             continue
+        open_results.append(result)
         value = open_port_value(host, result.port)
         items.append(
             {
@@ -120,11 +124,17 @@ async def scan_and_record(
     target_id: UUID,
     run_id: UUID,
     host: str,
+    domain: str,
     **scan_kwargs,
 ) -> tuple[PortScanReport, PortFindingsSummary]:
     report = await scan_host(host, **scan_kwargs)
     summary = await record_port_scan(
-        repo, target_id=target_id, run_id=run_id, host=host, report=report
+        repo,
+        target_id=target_id,
+        run_id=run_id,
+        host=host,
+        domain=domain,
+        report=report,
     )
     return report, summary
 
