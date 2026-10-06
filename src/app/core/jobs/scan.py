@@ -192,7 +192,7 @@ async def orchestrate_scan_run(
             degraded.extend(port_collection.sources_degraded)
             degradation_notes.extend(port_collection.degradation_notes)
         except Exception as error:  # noqa: BLE001 - TLS enrichment must not discard open ports.
-            degraded.extend(("ports", "tls"))
+            degraded.append("tls")
             degradation_notes.append(
                 f"tls: finding collection failed ({type(error).__name__})"
             )
