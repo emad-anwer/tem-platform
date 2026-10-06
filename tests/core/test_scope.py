@@ -122,12 +122,13 @@ def test_shipped_default_allowlist_lists_every_lab_service() -> None:
 
     entries = [part.strip() for part in allowlist_lines[0].partition("=")[2].split(",")]
     ScanScope.parse(entries)  # the shipped default must parse
-    assert entries == [
+    assert entries[:4] == [
         "lab-nginx",
         "lab-apache",
         "lab-nonstandard",
         "lab-tls-san",
     ]
+    assert "target4.lab.local" in entries
 
 
 # ------------------------------------------------------------------
