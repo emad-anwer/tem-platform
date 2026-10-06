@@ -37,9 +37,9 @@ Build:
 - **Counts that mean something.** `findings_count` and `new_findings_count` across all stages, not
   per stage
 
-Also in this task: **`src/app/core/jobs/scan.py::run_scheduled_scan` is a registered stub** with a
-`# actual scan orchestration...` comment in the middle of it. It is in `JOB_REGISTRY` and does
-nothing. Either it becomes the real orchestrator or it goes; do not leave a third thing.
+The former registered `run_scheduled_scan` stub is now the single orchestrator used by both API
+and recurring-scan jobs. The dead `src/app/worker/context.py` implementation is absent; tenant
+context is established only by `@tenant_job`.
 
 Tests:
 

@@ -42,8 +42,8 @@ from app.core.auth.context import reset_current_principal, set_current_principal
 from app.core.auth.job_context import system_principal
 from app.core.config import get_settings
 from app.core.db import get_session_factory
-from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 from app.core.jobs.lifecycle import mark_stale_runs
+from app.core.jobs.scan import ScanPayload, run_scheduled_scan
 from app.core.jobs.states import ScanRunStatus
 from app.core.models import Target
 from app.core.pipeline.service import DEFAULT_SCAN_MAX_ATTEMPTS
@@ -154,13 +154,12 @@ async def _schedule_one_target_in_context(
         return "skipped_running"
 
     run = await runs.create(target_id=target.id, max_attempts=DEFAULT_SCAN_MAX_ATTEMPTS)
-    payload = SubdomainDiscoveryPayload(tenant_id=target.tenant_id, run_id=run.id)
+    payload = ScanPayload(tenant_id=target.tenant_id, run_id=run.id)
     try:
-        # Same job start_scan enqueues — NOT the run_scheduled_scan stub,
-        # which is BUG-03/W4-10's to replace or delete. _job_id dedupes
-        # against arq-level retries of the same run.
+        # The API and scheduler share one worker orchestrator. _job_id dedupes
+        # arq-level retries of the same ScanRun.
         job = await pool.enqueue_job(
-            subdomain_discovery_job.__name__, payload, _job_id=str(run.id)
+            run_scheduled_scan.__name__, payload, _job_id=str(run.id)
         )
     except Exception:  # noqa: BLE001 - enqueue failed; drop the row we made.
         logger.warning("cron.scheduled_scan_enqueue_failed")

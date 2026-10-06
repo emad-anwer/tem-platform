@@ -8,6 +8,7 @@ from uuid import UUID
 from app.core.discovery import _belongs_to_domain, _normalise_hostname
 from app.core.fingerprint import FindingKind
 from app.core.repository import DiscoveryPersistenceSummary, FindingRepository
+from app.core.scope import ScopeViolationError
 from app.modules.asm.scanner.http_prober import HTTPService, probe_open_ports
 from app.modules.asm.scanner.port_scanner import (
     PortResult,
@@ -28,6 +29,13 @@ class PortFindingsSummary:
     resolved: int
 
 
+@dataclass(frozen=True, slots=True)
+class PortScanFindings:
+    items: tuple[dict, ...]
+    sources_degraded: tuple[str, ...]
+    degradation_notes: tuple[str, ...]
+
+
 async def record_http_services(
     repo: FindingRepository,
     *,
@@ -37,7 +45,30 @@ async def record_http_services(
     degraded: bool,
 ) -> PortFindingsSummary:
     """Persist HTTP observations and this run's snapshots atomically."""
-    items = []
+    items = http_service_finding_items(
+        target_id=target_id, run_id=run_id, services=services
+    )
+    summary = cast(
+        DiscoveryPersistenceSummary,
+        await repo.persist_discovery_run(
+            target_id=target_id,
+            run_id=run_id,
+            items=items,
+            kinds={FindingKind.HTTP_SERVICE},
+            degraded=degraded,
+            return_summary=True,
+        ),
+    )
+    return PortFindingsSummary(
+        total=summary.total, new=summary.new, resolved=summary.resolved
+    )
+
+
+def http_service_finding_items(
+    *, target_id: UUID, run_id: UUID, services: list[HTTPService]
+) -> list[dict]:
+    """Convert HTTP observations into the generic finding contract."""
+    items: list[dict] = []
     for service in services:
         value = service.value
         items.append(
@@ -61,20 +92,7 @@ async def record_http_services(
                 },
             }
         )
-    summary = cast(
-        DiscoveryPersistenceSummary,
-        await repo.persist_discovery_run(
-            target_id=target_id,
-            run_id=run_id,
-            items=items,
-            kinds={FindingKind.HTTP_SERVICE},
-            degraded=degraded,
-            return_summary=True,
-        ),
-    )
-    return PortFindingsSummary(
-        total=summary.total, new=summary.new, resolved=summary.resolved
-    )
+    return items
 
 
 def open_port_value(host: str, port: int) -> str:
@@ -91,11 +109,49 @@ async def record_port_scan(
     report: PortScanReport,
 ) -> PortFindingsSummary:
     """Persist open ports and this run's snapshots atomically."""
-    normalized_domain = _normalise_hostname(domain)
-    if not normalized_domain:
+    collection = await collect_port_scan_findings(
+        target_id=target_id,
+        run_id=run_id,
+        host=host,
+        domain=domain,
+        report=report,
+    )
+    summary = cast(
+        DiscoveryPersistenceSummary,
+        await repo.persist_discovery_run(
+            target_id=target_id,
+            run_id=run_id,
+            items=collection.items,
+            kinds={FindingKind.OPEN_PORT, FindingKind.TLS_CERTIFICATE},
+            degraded=report.attempted == 0,
+            degraded_kinds=(
+                {FindingKind.TLS_CERTIFICATE}
+                if collection.sources_degraded and report.attempted > 0
+                else None
+            ),
+            return_summary=True,
+        ),
+    )
+    return PortFindingsSummary(
+        total=summary.total, new=summary.new, resolved=summary.resolved
+    )
+
+
+async def collect_port_scan_findings(
+    *,
+    target_id: UUID,
+    run_id: UUID,
+    host: str,
+    domain: str | None,
+    report: PortScanReport,
+) -> PortScanFindings:
+    """Collect ports, certificates, and eligible SANs without database writes."""
+    normalized_domain = _normalise_hostname(domain) if domain else None
+    if domain is not None and not normalized_domain:
         raise ValueError("domain must be a valid hostname")
 
-    items = []
+    items: list[dict] = []
+    degradation_notes: list[str] = []
     open_results: list[PortResult] = []
     for result in report.results:
         if result.state is not PortState.OPEN:
@@ -117,13 +173,28 @@ async def record_port_scan(
 
     async def inspect_tls(result: PortResult):
         async with semaphore:
-            return await probe_tls_certificate(host, result.port)
+            try:
+                return result, await probe_tls_certificate(host, result.port), None
+            except ScopeViolationError:
+                raise
+            except Exception as error:  # noqa: BLE001 - one endpoint must not discard port findings.
+                return result, None, type(error).__name__
 
     observations = await asyncio.gather(
-        *(inspect_tls(result) for result in open_results)
+        *(inspect_tls(result) for result in open_results), return_exceptions=True
     )
     seen_san_names: set[str] = set()
-    for result, observation in zip(open_results, observations, strict=True):
+    for outcome in observations:
+        if isinstance(outcome, BaseException):
+            if not isinstance(outcome, Exception):
+                raise outcome
+            degradation_notes.append(
+                f"tls: certificate probe failed ({type(outcome).__name__})"
+            )
+            continue
+        result, observation, error_name = outcome
+        if error_name:
+            degradation_notes.append(f"tls: certificate probe failed ({error_name})")
         if observation is None:
             continue
         certificate_value = f"{host}:{result.port}"
@@ -142,6 +213,7 @@ async def record_port_scan(
             if (
                 normalized_name
                 and normalized_name not in seen_san_names
+                and normalized_domain is not None
                 and _belongs_to_domain(normalized_name, normalized_domain)
             ):
                 seen_san_names.add(normalized_name)
@@ -155,23 +227,10 @@ async def record_port_scan(
                     }
                 )
 
-    summary = cast(
-        DiscoveryPersistenceSummary,
-        await repo.persist_discovery_run(
-            target_id=target_id,
-            run_id=run_id,
-            items=items,
-            # SAN subdomains are additive observations, not an authoritative
-            # inventory; never resolve existing subdomains from a certificate.
-            kinds={FindingKind.OPEN_PORT, FindingKind.TLS_CERTIFICATE},
-            # Preserve the existing behaviour for a fully out-of-scope scan:
-            # it observes nothing and must not resolve prior open-port findings.
-            degraded=report.attempted == 0,
-            return_summary=True,
-        ),
-    )
-    return PortFindingsSummary(
-        total=summary.total, new=summary.new, resolved=summary.resolved
+    return PortScanFindings(
+        items=tuple(items),
+        sources_degraded=("tls",) if degradation_notes else (),
+        degradation_notes=tuple(degradation_notes),
     )
 
 

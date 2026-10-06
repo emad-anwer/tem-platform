@@ -6,7 +6,6 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
-from uuid import UUID
 
 import dns.asyncresolver
 import dns.exception
@@ -14,7 +13,6 @@ import dns.resolver
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.job_context import tenant_job
 from app.core.fingerprint import (
     FindingKind,
 )
@@ -35,12 +33,6 @@ class SourceResult:
     items: set[str]
     degraded: bool = False
     note: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class SubdomainDiscoveryPayload:
-    tenant_id: UUID
-    run_id: UUID
 
 
 class ScanSource(Protocol):
@@ -209,22 +201,6 @@ async def _load_domain_target(
     return target, domain
 
 
-def _merge_source_results(
-    source_list: list[ScanSource],
-    results: list[SourceResult],
-    names: set[str],
-    degraded: list[str],
-    degradation_notes: list[str],
-) -> None:
-    """Fold one round of source results into the shared name/degraded sets."""
-    for source, result in zip(source_list, results, strict=True):
-        names.update(result.items)
-        if result.degraded:
-            degraded.append(source.name)
-            if result.note:
-                degradation_notes.append(f"{source.name}: {result.note}")
-
-
 async def _resolve_with_dns(
     source_list: list[ScanSource],
     names: set[str],
@@ -245,6 +221,97 @@ async def _resolve_with_dns(
                 degradation_notes.append(f"{dns_source.name}: {dns_result.note}")
 
 
+@dataclass(frozen=True, slots=True)
+class DiscoveryCollection:
+    hostnames: tuple[str, ...]
+    items: tuple[dict[str, Any], ...]
+    sources_attempted: tuple[str, ...]
+    sources_degraded: tuple[str, ...]
+    degradation_notes: tuple[str, ...]
+
+
+async def collect_domain_discoveries(
+    ctx: dict[str, Any],
+    run: ScanRun,
+    *,
+    sources: Iterable[ScanSource],
+    max_results: int = DEFAULT_MAX_RESULTS,
+) -> DiscoveryCollection:
+    """Collect in-domain hostnames and findings without committing a partial run."""
+    _target, domain = await _load_domain_target(ctx["db"], run.target_id)
+    source_list = list(sources)
+    deadline = ctx.get("scan_deadline_monotonic")
+    if deadline is not None:
+
+        def can_wait(wait: float) -> bool:
+            return time.monotonic() + wait < deadline
+
+        for source in source_list:
+            set_guard = getattr(source, "set_wait_guard", None)
+            if set_guard is not None:
+                set_guard(can_wait)
+
+    names = {domain}
+    degraded: list[str] = []
+    degradation_notes: list[str] = []
+    results = await asyncio.gather(
+        *(source.collect(domain) for source in source_list), return_exceptions=True
+    )
+    for source, result in zip(source_list, results, strict=True):
+        if isinstance(result, BaseException):
+            if not isinstance(result, Exception):
+                raise result
+            degraded.append(source.name)
+            degradation_notes.append(
+                f"{source.name}: source failed ({type(result).__name__})"
+            )
+            continue
+        names.update(result.items)
+        if result.degraded:
+            degraded.append(source.name)
+            if result.note:
+                degradation_notes.append(f"{source.name}: {result.note}")
+
+    try:
+        await _resolve_with_dns(source_list, names, degraded, degradation_notes)
+    except Exception as error:
+        dns_source = next(
+            (source for source in source_list if isinstance(source, DNSSource)), None
+        )
+        if dns_source is None:
+            raise
+        degraded.append(dns_source.name)
+        degradation_notes.append(
+            f"{dns_source.name}: resolution failed ({type(error).__name__})"
+        )
+
+    hostnames = tuple(
+        sorted(
+            {
+                name
+                for name in (_normalise_hostname(item) for item in names)
+                if name and _belongs_to_domain(name, domain)
+            }
+        )[:max_results]
+    )
+    items = tuple(
+        {
+            "target_id": run.target_id,
+            "run_id": run.id,
+            "kind": FindingKind.SUBDOMAIN,
+            "value": name,
+        }
+        for name in hostnames
+    )
+    return DiscoveryCollection(
+        hostnames=hostnames,
+        items=items,
+        sources_attempted=tuple(source.name for source in source_list),
+        sources_degraded=tuple(dict.fromkeys(degraded)),
+        degradation_notes=tuple(dict.fromkeys(degradation_notes)),
+    )
+
+
 async def discover_domain(
     ctx: dict[str, Any],
     run: ScanRun,
@@ -254,66 +321,31 @@ async def discover_domain(
     persist_finding: bool = True,
 ) -> None:
     """Collect, normalize, resolve, and persist passive domain discoveries."""
-    target, domain = await _load_domain_target(ctx["db"], run.target_id)
-
-    source_list = list(sources)
-    deadline = ctx.get("scan_deadline_monotonic")
-    if deadline is not None:
-        # The limiter only decides allowed/wait.  This layer owns the job's
-        # deadline and reserves a small margin for request/DB cleanup.
-        def can_wait(wait: float) -> bool:
-            return time.monotonic() + wait < deadline
-
-        for source in source_list:
-            set_guard = getattr(source, "set_wait_guard", None)
-            if set_guard is not None:
-                set_guard(can_wait)
-    await _record_sources(
-        ctx["db"], run.id, [source.name for source in source_list], [], None
+    target = await _get_target(ctx["db"], run.target_id)
+    collection = await collect_domain_discoveries(
+        ctx, run, sources=sources, max_results=max_results
     )
-    results = await asyncio.gather(*(source.collect(domain) for source in source_list))
-    names = {domain}
-    degraded: list[str] = []
-    degradation_notes: list[str] = []
-    _merge_source_results(source_list, results, names, degraded, degradation_notes)
-    await _resolve_with_dns(source_list, names, degraded, degradation_notes)
-
-    names = {
-        name
-        for name in (_normalise_hostname(item) for item in names)
-        if name and _belongs_to_domain(name, domain)
-    }
-    names = set(sorted(names)[:max_results])
     await _record_sources(
         ctx["db"],
         run.id,
-        [source.name for source in source_list],
-        degraded,
-        degradation_notes,
+        list(collection.sources_attempted),
+        list(collection.sources_degraded),
+        list(collection.degradation_notes),
     )
 
     if persist_finding:
         repository = FindingRepository(ctx["db"])
-        items = [
-            {
-                "target_id": target.id,
-                "run_id": run.id,
-                "kind": FindingKind.SUBDOMAIN,
-                "value": name,
-            }
-            for name in sorted(names)
-        ]
         new_findings_count = await repository.persist_discovery_run(
             target_id=target.id,
             run_id=run.id,
-            items=items,
+            items=collection.items,
             kinds={FindingKind.SUBDOMAIN},
-            degraded=bool(degraded),
+            degraded=bool(collection.sources_degraded),
         )
     else:
         new_findings_count = 0
 
-    run.findings_count = len(names)
+    run.findings_count = len(collection.hostnames)
     run.new_findings_count = new_findings_count
     ctx["db"].add(run)
     await ctx["db"].commit()
@@ -328,24 +360,6 @@ async def run_subdomain_discovery(
         ctx,
         lambda job_ctx, run: discover_domain(job_ctx, run, sources=sources),
     )
-
-
-@tenant_job
-async def subdomain_discovery_job(
-    ctx: dict[str, Any], payload: SubdomainDiscoveryPayload
-) -> ScanRun | None:
-    """Run passive DNS and certificate-transparency discovery for one run."""
-    ctx["run_id"] = str(payload.run_id)
-    # This client talks to crt.sh — scanner infrastructure, not a scan target.
-    # Scope (scope.py) governs connections *to targets*; target-facing HTTP
-    # (W4-06) must go through scoped_http_client() so the gate sits at the
-    # connection layer, where no request can slip past it.
-    async with httpx.AsyncClient() as client:
-        sources: tuple[ScanSource, ...] = (
-            DNSSource(),
-            CertificateTransparencySource(client=client),
-        )
-        return await run_subdomain_discovery(ctx, sources=sources)
 
 
 async def _get_target(session: AsyncSession, target_id: Any) -> Target:

@@ -10,14 +10,21 @@ not a tutorial. Reference contracts live in
 
 One paragraph: the API does no scanning. `POST /api/v1/targets/{id}/scans`
 (`src/app/core/pipeline/service.py::start_scan`) creates a `scan_runs` row in
-`queued`, enqueues `subdomain_discovery_job` on Redis via arq
+`queued`, enqueues `run_scheduled_scan` on Redis via arq
 (`_job_id=str(scan_run.id)`), and returns `202` + `Location: /api/v1/scan_runs/{id}`.
 The `worker` service (same image as `app`, no ports, `compose.yaml`) picks the job up,
 `@tenant_job` rebuilds tenant scope from the payload, `execute_scan_run`
-claims the row `queued → running`, runs DNS + crt.sh discovery, upserts findings,
-then marks the row `succeeded` or `failed`. Postgres is the source of truth;
+claims the row `queued → running`, then runs DNS/crt.sh, TCP ports, HTTP, and TLS/SAN
+stages in one job. Each stage contributes to one finding batch and one changes snapshot
+set before the row becomes `succeeded` or `failed`. Stage failures are recorded in
+`sources_degraded`/`error_message`; successful stages still persist. Postgres is the source of truth;
 Redis/arq is delivery only. Poll `GET /api/v1/scan_runs/{id}`; read results at
 `GET /api/v1/findings?target_id=…&scan_run_id=…`.
+
+One job is the right boundary while the bounded host count and scanner timeouts fit within
+`job_timeout` (300 seconds): retries reuse the same run and one final persistence call creates a
+coherent changes snapshot. Revisit a multi-job/saga design if scans routinely approach that
+deadline or stages need independent retries; child jobs must still write to the parent run id.
 
 ```mermaid
 sequenceDiagram
@@ -28,12 +35,14 @@ sequenceDiagram
     participant W as Worker
     C->>A: POST /api/v1/targets/{id}/scans
     A->>P: INSERT scan_runs (queued)
-    A->>R: enqueue subdomain_discovery_job (job_id = run id)
+   A->>R: enqueue run_scheduled_scan (job_id = run id)
     A-->>C: 202 + run (queued), Location /scan_runs/{id}
     R->>W: deliver job
     W->>P: claim queued → running (started_at, arq_job_id)
-    W->>W: DNS + crt.sh collect (async, timeouts)
-    W->>P: upsert findings (ON CONFLICT), counts
+   W->>W: DNS + crt.sh discovery
+   W->>W: scope-check discovered hosts
+   W->>W: TCP ports → HTTP + TLS/SAN
+   W->>P: persist mixed findings + snapshots once
     W->>P: running → succeeded / failed
     C->>A: GET /scan_runs/{id} (poll) → GET /findings
 ```
@@ -45,8 +54,8 @@ sequenceDiagram
 decide *at the moment the connection is about to open* — nothing above them
 can forget to ask — and both connect to the **checked** address instead of
 resolving again, which is the DNS-rebinding answer. Above that, the worker
-re-checks inside `discover_domain` (a job refusing to run is not the same
-guarantee as an API refusing to queue it), and the API's `start_scan` answers
+re-checks the root before collection and re-checks every discovered host before
+port scanning (`scan.py::orchestrate_scan_run`), and the API's `start_scan` answers
 `403` problem details before a run row exists — nothing enqueued. Refusals
 log `scan.scope_refused` (`target`, `resolved`, `reason`); inside a job they
 are **terminal** failures carrying `terminal: target outside scan scope (…)`.
@@ -55,8 +64,9 @@ multicast are blocked even when listed. Full scope policy: W4-11.
 
 ## 2. How a module adds a new job
 
-Do these four things; the framework does the rest. Copy
-`src/app/core/discovery.py::subdomain_discovery_job` line for line the first time.
+Do these four things; the framework does the rest. The shared ASM entry point is
+`src/app/core/jobs/scan.py::run_scheduled_scan`; add scanners as collectors there
+or in their owning module, and keep the one-run persistence boundary intact.
 
 1. **Payload with `tenant_id`.** A frozen dataclass carrying `tenant_id: UUID`
    plus whatever the job needs (e.g. `run_id`). No token, no headers —
@@ -82,7 +92,8 @@ Do these four things; the framework does the rest. Copy
 The framework gives you: enqueue/delivery/retries (arq, `max_tries=3`,
 full-jitter backoff), tenant isolation (context + `TenantScopedRepository`),
 scrubbed failure rows (≤2000 chars, no secrets/tracebacks/SQL), and
-`job_id`/`tenant_id` on every log line.
+`job_id`/`tenant_id` on every log line. API and recurring-scan cron jobs enqueue the
+same registered entry point; there is no separate scheduled-scan stub.
 
 ## 3. `ScanRun` states
 

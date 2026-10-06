@@ -10,13 +10,13 @@ import pytest
 from app.core.auth.context import clear_current_principal, set_current_principal
 from app.core.auth.job_context import JOB_REGISTRY
 from app.core.auth.principal import Principal, Role
-from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 from app.core.errors import (
     ConflictError,
     NotFoundError,
     ServiceUnavailableError,
 )
 from app.core.errors import ValidationError as AppValidationError
+from app.core.jobs.scan import ScanPayload, run_scheduled_scan
 from app.core.jobs.states import ScanRunStatus
 from app.core.pipeline.service import PipelineService
 from app.core.pipeline.validation import TargetKind
@@ -284,7 +284,7 @@ async def test_start_scan_success_enqueues_job_with_tenant_id(
     mock_pool.enqueue_job.assert_called_once()
     call_args = mock_pool.enqueue_job.call_args
     payload = call_args[0][1]
-    assert isinstance(payload, SubdomainDiscoveryPayload)
+    assert isinstance(payload, ScanPayload)
     assert payload.tenant_id == tenant_a.id
     assert payload.run_id == scan_run.id
     assert call_args[1]["_job_id"] == str(scan_run.id)
@@ -292,15 +292,13 @@ async def test_start_scan_success_enqueues_job_with_tenant_id(
 
 def test_start_scan_enqueue_is_registry_compatible():
     """start_scan must enqueue a registered worker job with a matching payload type."""
-    job_name = subdomain_discovery_job.__name__
+    job_name = run_scheduled_scan.__name__
     assert job_name in JOB_REGISTRY
 
-    worker_payload_type = get_type_hints(subdomain_discovery_job)["payload"]
-    assert worker_payload_type is SubdomainDiscoveryPayload
+    worker_payload_type = get_type_hints(run_scheduled_scan)["payload"]
+    assert worker_payload_type is ScanPayload
 
-    payload_field_names = {
-        field.name for field in dataclasses.fields(SubdomainDiscoveryPayload)
-    }
+    payload_field_names = {field.name for field in dataclasses.fields(ScanPayload)}
     assert payload_field_names == {"tenant_id", "run_id"}
 
 

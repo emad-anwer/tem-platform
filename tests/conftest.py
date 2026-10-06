@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 # must not depend on a developer's `.env` (or empty-scope it and break
 # somebody else's machine).
 TEST_SCAN_SCOPE_ALLOWLIST = (
-    "lab-nginx,lab-apache,lab-nonstandard,lab-tls-san,"
+    "lab-nginx,lab-apache,lab-nonstandard,lab-tls-san,target4.lab.local,"
     "203.0.113.0/24,127.0.0.1:8081,[::1]:8081"
 )
 os.environ["SCAN_SCOPE_ALLOWLIST"] = TEST_SCAN_SCOPE_ALLOWLIST

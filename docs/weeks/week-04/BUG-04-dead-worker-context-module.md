@@ -4,6 +4,9 @@
 **Closed by:** [W4-10](W4-10-scan-orchestration.md) · **Owner:** Tasneem, as part of W4-10 ·
 **Effort:** included in W4-10 (a deletion)
 
+**Status:** Resolved. `src/app/worker/context.py` and its commented import are absent; tenant jobs
+use `@tenant_job` from `src/app/core/auth/job_context.py`.
+
 ## What is wrong
 
 `src/app/worker/context.py` defines `bind_job_context`, `clear_job_context` and a `job_context`

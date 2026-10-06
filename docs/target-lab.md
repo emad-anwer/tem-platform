@@ -20,6 +20,11 @@ Unlike live internet hosts which may change, rate limit, or go offline unexpecte
 | **`lab-nonstandard`** | `8888` | `8888` | HTTP | `nginx/1.25.4` | Non-standard port listening, `X-Service-Type: Custom-Port-Tester`, `X-Lab-Target: nonstandard-port-8888` | N/A |
 | **`lab-tls-san`** | `8443` | `443` | HTTPS | `nginx/1.25.4` | Self-signed X.509 v3 TLS certificate, TLSv1.2 & TLSv1.3, `X-Lab-Target: tls-san-multi-domain` | `target4.lab.local`<br/>`sub1.target4.lab.local`<br/>`api.target4.lab.local`<br/>`admin.internal.tem.local`<br/>`127.0.0.1` |
 
+On the Compose network, `lab-tls-san` also has the explicit alias `target4.lab.local`,
+which is the domain target used by the full scan E2E test. Both names resolve to the same
+lab container; the alias is included in `SCAN_SCOPE_ALLOWLIST` and does not add external
+scan scope.
+
 ---
 
 ## 2. Managing the Lab

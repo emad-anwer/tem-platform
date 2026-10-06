@@ -981,14 +981,16 @@ class FindingRepository(TenantScopedRepository[Finding]):
         kinds: set[FindingKind],
         degraded: bool = False,
         return_summary: bool = False,
+        degraded_kinds: set[FindingKind] | None = None,
     ) -> int | DiscoveryPersistenceSummary:
         """Upsert a scanner's findings and persist its generic run-to-run diff.
 
         The pre-upsert finding row is the single source for the previous
         status/details; rows returned by this run's upsert are the current side.
         Finding upserts, missing-finding resolution, and snapshot replacement
-        share one transaction, so a failure cannot leave persisted findings
-        without their corresponding run snapshots.
+        share one transaction. ``degraded_kinds`` allows failed stages in a
+        multi-stage scan to preserve only their own missing findings. When it
+        is omitted, the existing run-wide ``degraded`` behavior is unchanged.
 
         Details use the cumulative shallow-merge semantics defined in
         ADR-0003 §6. Missing membership is computed from the run's explicit
@@ -1027,11 +1029,18 @@ class FindingRepository(TenantScopedRepository[Finding]):
                 kinds=kinds,
                 excluding_fingerprints=fingerprints,
             )
-            if not degraded:
+            kinds_to_resolve = (
+                kinds
+                if degraded_kinds is None and not degraded
+                else set()
+                if degraded_kinds is None
+                else kinds - degraded_kinds
+            )
+            if kinds_to_resolve:
                 await self.resolve_missing_discoveries(
                     target_id=target_id,
                     seen_fingerprints=fingerprints,
-                    kinds=kinds,
+                    kinds=kinds_to_resolve,
                     commit=False,
                 )
 
@@ -1056,12 +1065,18 @@ class FindingRepository(TenantScopedRepository[Finding]):
                     }
                 )
             for finding in missing:
+                finding_kind = FindingKind(finding.kind)
+                is_degraded = (
+                    degraded
+                    if degraded_kinds is None
+                    else finding_kind in degraded_kinds
+                )
                 snapshots.append(
                     {
                         "finding_id": finding.id,
-                        "classification": "unchanged" if degraded else "resolved",
+                        "classification": "unchanged" if is_degraded else "resolved",
                         "finding_snapshot": _finding_snapshot(
-                            finding, status="active" if degraded else "resolved"
+                            finding, status="active" if is_degraded else "resolved"
                         ),
                     }
                 )
