@@ -4,6 +4,8 @@
 **Closed by:** [W4-10](W4-10-scan-orchestration.md) · **Owner:** Tasneem, as part of W4-10 ·
 **Effort:** included in W4-10
 
+**Status:** Resolved. `run_scheduled_scan` now orchestrates all ASM stages for one `ScanRun`.
+
 ## What is wrong
 
 `src/app/core/jobs/scan.py:21` defines `run_scheduled_scan`, decorated with `@tenant_job` — so it is

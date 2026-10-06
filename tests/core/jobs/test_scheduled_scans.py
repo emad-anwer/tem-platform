@@ -17,6 +17,7 @@ from app.core.auth.context import (
     set_current_principal,
 )
 from app.core.auth.principal import Principal, Role
+from app.core.jobs.scan import ScanPayload, run_scheduled_scan
 from app.core.jobs.schedule import (
     enqueue_scheduled_scans_once,
     sweep_stale_runs_once,
@@ -134,7 +135,8 @@ async def test_recurring_enqueues_active_and_skips_inactive(
     }
     assert len(pool.calls) == 1
     name, payload, job_id = pool.calls[0]
-    assert name == "subdomain_discovery_job"
+    assert name == run_scheduled_scan.__name__
+    assert isinstance(payload, ScanPayload)
     assert payload.tenant_id == tenant.id
     assert str(payload.run_id) == job_id
     rows = await _all_runs(db_session)

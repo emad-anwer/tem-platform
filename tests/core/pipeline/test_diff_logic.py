@@ -544,6 +544,60 @@ async def test_degraded_run_does_not_resolve_missing_findings(db_session, two_te
     assert _counts(run2_findings) == {"unchanged": 2}
 
 
+async def test_partial_degradation_resolves_only_successful_stage_kinds(
+    db_session, two_tenants
+):
+    tenant, _ = two_tenants
+    set_current_principal(_owner(tenant.id))
+    target = await _make_target(
+        db_session, tenant_id=tenant.id, name="partial-degrade.example.com"
+    )
+    repository = FindingRepository(db_session, tenant_id=tenant.id)
+    kinds = {FindingKind.SUBDOMAIN, FindingKind.OPEN_PORT}
+
+    first_run = await _make_run(db_session, tenant_id=tenant.id, target_id=target.id)
+    await repository.persist_discovery_run(
+        target_id=target.id,
+        run_id=first_run.id,
+        items=[
+            _item(
+                target.id,
+                run_id=first_run.id,
+                hostname="api.partial-degrade.example.com",
+            ),
+            {
+                "target_id": target.id,
+                "run_id": first_run.id,
+                "kind": FindingKind.OPEN_PORT,
+                "value": "partial-degrade.example.com:443/tcp",
+            },
+        ],
+        kinds=kinds,
+    )
+    await _succeed_run(db_session, tenant_id=tenant.id, run=first_run)
+
+    second_run = await _make_run(db_session, tenant_id=tenant.id, target_id=target.id)
+    await repository.persist_discovery_run(
+        target_id=target.id,
+        run_id=second_run.id,
+        items=[],
+        kinds=kinds,
+        degraded=True,
+        degraded_kinds={FindingKind.SUBDOMAIN},
+    )
+
+    findings, _ = await repository.list(target_id=target.id)
+    statuses = {finding.kind: finding.status for finding in findings}
+    assert statuses == {
+        FindingKind.SUBDOMAIN: "active",
+        FindingKind.OPEN_PORT: "resolved",
+    }
+    snapshots = await ScanRunFindingRepository(
+        db_session, tenant_id=tenant.id
+    ).list_for_run(second_run.id)
+    assert {item.classification for item in snapshots} == {"unchanged", "resolved"}
+
+
 async def test_persist_discovery_run_replaces_snapshots_for_the_same_run(
     db_session, two_tenants
 ):

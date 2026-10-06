@@ -9,13 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.dependencies import get_principal
 from app.core.auth.principal import Principal
 from app.core.db import get_db
-from app.core.discovery import SubdomainDiscoveryPayload, subdomain_discovery_job
 from app.core.errors import (
     ConflictError,
     NotFoundError,
     ServiceUnavailableError,
     ValidationError,
 )
+from app.core.jobs.scan import ScanPayload, run_scheduled_scan
 from app.core.jobs.states import ScanRunStatus
 from app.core.models import Finding, ScanRun, ScanRunFinding, Target
 from app.core.pipeline.validation import TargetKind, normalize_target
@@ -111,7 +111,7 @@ class PipelineService:
             max_attempts=DEFAULT_SCAN_MAX_ATTEMPTS,
         )
 
-        payload = SubdomainDiscoveryPayload(
+        payload = ScanPayload(
             tenant_id=self._principal.tenant_id,
             run_id=scan_run.id,
         )
@@ -119,7 +119,7 @@ class PipelineService:
         try:
             pool = await get_arq_pool()
             job = await pool.enqueue_job(
-                subdomain_discovery_job.__name__, payload, _job_id=str(scan_run.id)
+                run_scheduled_scan.__name__, payload, _job_id=str(scan_run.id)
             )
         except Exception as exc:
             logger.warning(
