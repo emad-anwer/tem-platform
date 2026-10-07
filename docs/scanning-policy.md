@@ -1,9 +1,5 @@
 # Scanning Policy
 
-**Owner:** Islam (scope guard) · **Applies from:** W4-02 · **Read this before adding a scan target.**
-
----
-
 ## What the platform may scan
 
 The platform connects only to hosts that appear in `SCAN_SCOPE_ALLOWLIST`
