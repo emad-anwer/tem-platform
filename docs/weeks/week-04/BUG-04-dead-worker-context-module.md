@@ -1,7 +1,7 @@
 # BUG-04 · `worker/context.py` is a second, dead way to bind job context
 
 **Severity:** low (dead code, real trap) · **Found:** week-3 review ·
-**Closed by:** [W4-10](W4-10-scan-orchestration.md) · **Owner:** Tasneem, as part of W4-10 ·
+**Closed by:** [#102](https://github.com/emad-anwer/tem-platform/issues/102) · **Owner:** Arwa, as part of W4-10 ·
 **Effort:** included in W4-10 (a deletion)
 
 **Status:** Resolved. `src/app/worker/context.py` and its commented import are absent; tenant jobs

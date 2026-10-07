@@ -1,7 +1,7 @@
 # BUG-03 · `run_scheduled_scan` is a registered stub
 
 **Severity:** medium (misleading, not broken) · **Found:** week-3 review ·
-**Closed by:** [W4-10](W4-10-scan-orchestration.md) · **Owner:** Tasneem, as part of W4-10 ·
+**Closed by:** [#102](https://github.com/emad-anwer/tem-platform/issues/102) · **Owner:** Arwa, as part of W4-10 ·
 **Effort:** included in W4-10
 
 **Status:** Resolved. `run_scheduled_scan` now orchestrates all ASM stages for one `ScanRun`.

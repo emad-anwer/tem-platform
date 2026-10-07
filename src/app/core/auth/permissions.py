@@ -16,7 +16,10 @@ class Permission(StrEnum):
     TENANT_CREATE = "tenant:create"
     TENANT_READ = "tenant:read"
     TARGET_CREATE = "target:create"
+    TARGET_READ = "target:read"
     SCAN_START = "scan:start"
+    SCAN_READ = "scan:read"
+    FINDING_READ = "finding:read"
 
 
 # Zitadel grants roles; this application matrix decides what those roles may do.
@@ -28,7 +31,16 @@ PERMISSION_MATRIX: dict[Permission, frozenset[Role]] = {
     Permission.TARGET_CREATE: frozenset(
         {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST}
     ),
+    Permission.TARGET_READ: frozenset(
+        {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST, Role.VIEWER}
+    ),
     Permission.SCAN_START: frozenset({Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST}),
+    Permission.SCAN_READ: frozenset(
+        {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST, Role.VIEWER}
+    ),
+    Permission.FINDING_READ: frozenset(
+        {Role.PLATFORM_ADMIN, Role.OWNER, Role.ANALYST, Role.VIEWER}
+    ),
 }
 
 
@@ -63,4 +75,6 @@ def require_permission(permission: Permission) -> Callable:
             )
         return principal
 
+    dependency.__name__ = f"require_permission_{permission.value.replace(':', '_')}"
+    dependency.__permission__ = permission  # type: ignore[attr-defined]
     return dependency

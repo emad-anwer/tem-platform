@@ -68,6 +68,7 @@ async def create_target(
     "/api/v1/targets/{target_id}",
     response_model=TargetDocument,
     summary="Get a target",
+    dependencies=[Depends(require_permission(Permission.TARGET_READ))],
 )
 async def get_target(
     target_id: UUID,
@@ -81,6 +82,7 @@ async def get_target(
     "/api/v1/targets",
     response_model=TargetCollectionDocument,
     summary="List targets",
+    dependencies=[Depends(require_permission(Permission.TARGET_READ))],
 )
 async def list_targets(
     request: Request,
@@ -117,6 +119,7 @@ async def start_scan(
     "/api/v1/scan_runs/{scan_run_id}",
     response_model=ScanRunDocument,
     summary="Get scan run state",
+    dependencies=[Depends(require_permission(Permission.SCAN_READ))],
 )
 async def get_scan_run(
     scan_run_id: UUID,
@@ -130,6 +133,7 @@ async def get_scan_run(
     "/api/v1/scan_runs/{scan_run_id}/changes",
     response_model=ScanRunChangesDocument,
     summary="Get findings changed by a scan run",
+    dependencies=[Depends(require_permission(Permission.FINDING_READ))],
 )
 async def get_scan_run_changes(
     scan_run_id: UUID,
@@ -168,6 +172,7 @@ async def get_scan_run_changes(
     "/api/v1/findings",
     response_model=FindingCollectionDocument,
     summary="List findings",
+    dependencies=[Depends(require_permission(Permission.FINDING_READ))],
 )
 async def list_findings(
     request: Request,

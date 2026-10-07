@@ -242,7 +242,8 @@ snapshot as `unchanged`, because an incomplete source result is not evidence
 that an asset disappeared. Resolution is scoped to the kinds the scanner
 produces, so a port-only run cannot resolve subdomain findings.
 
-This GET route has no separate read permission in
-`src/app/core/auth/permissions.py`; every authenticated role can read within
-its tenant, matching the current pipeline GET routes. Revisit this before
-week-6 alerts introduce more sensitive read surfaces.
+Pipeline GET routes declare explicit read permissions in
+`src/app/core/auth/permissions.py`: `target:read`, `scan:read`, and
+`finding:read`. `viewer` has those read permissions within its own tenant, but
+does not have `target:create` or `scan:start`; cross-tenant pipeline reads still
+return 404 through the tenant-scoped repositories.

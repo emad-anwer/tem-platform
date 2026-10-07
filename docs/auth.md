@@ -194,11 +194,17 @@ From `app/core/auth/permissions.py` — this *is* the matrix, not a paraphrase o
 |---|---|:---:|:---:|:---:|:---:|
 | `tenant:create` | `POST /api/v1/tenants` | ✅ | ❌ | ❌ | ❌ |
 | `tenant:read` | `GET /api/v1/tenants`, `GET /api/v1/tenants/{id}` | ✅ | ✅ | ✅ | ✅ |
+| `target:create` | `POST /api/v1/targets` | ✅ | ✅ | ✅ | ❌ |
+| `target:read` | `GET /api/v1/targets`, `GET /api/v1/targets/{id}` | ✅ | ✅ | ✅ | ✅ |
+| `scan:start` | `POST /api/v1/targets/{id}/scans` | ✅ | ✅ | ✅ | ❌ |
+| `scan:read` | `GET /api/v1/scan_runs/{id}` | ✅ | ✅ | ✅ | ✅ |
+| `finding:read` | `GET /api/v1/findings`, `GET /api/v1/scan_runs/{id}/changes` | ✅ | ✅ | ✅ | ✅ |
 
 Two things worth knowing that the table alone doesn't say:
 
 - **A user can hold more than one role** (the bootstrap dev user holds all three), but `Principal.role` is a single value. `TokenVerifier._select_role` picks the highest-privilege role present, in this fixed order: `platform_admin > owner > analyst > viewer`. If you're granted `owner` and `viewer` both, your `Principal.role` is `owner` — the others are simply not visible past that point.
 - **`tenant:read` isn't tenant-scoped.** Any of the four roles can list *every* tenant and fetch *any* tenant by id — `list_tenants`/`get_tenant` don't filter by `principal.tenant_id` at all. That may be intentional (these are platform-level admin objects, not tenant-owned business data), but it's not something this doc is asserting is correct — it's just what the code currently does, worth knowing before you assume tenant isolation applies here the way ADR-0002 §2 describes for regular data.
+- **`viewer` exists to inspect tenant-scoped data without changing it.** A viewer can read targets, scan runs, and findings inside their own tenant, including finding change buckets, but cannot create targets or start scans. Cross-tenant pipeline reads still return 404 through the tenant-scoped repositories; same-tenant role failures return 403 from the permission matrix.
 
 ---
 

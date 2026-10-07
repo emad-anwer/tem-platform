@@ -78,8 +78,8 @@ your own code looked like to someone reading it cold a week later.
 |---|---|---|---|---|---|
 | [BUG-01](BUG-01-hardcoded-subdomain-kind.md) | `core` hardcodes `"subdomain"` in three places | W4-03 | Zyad | in W4-03 | [#104](https://github.com/emad-anwer/tem-platform/issues/104) |
 | [BUG-02](BUG-02-mark-stale-runs-has-no-caller.md) | `mark_stale_runs` has no caller — dead since it merged | W4-09 | Islam | in W4-09 | [#105](https://github.com/emad-anwer/tem-platform/issues/105) |
-| [BUG-03](BUG-03-run-scheduled-scan-is-a-stub.md) | `run_scheduled_scan` is a registered stub that logs success | W4-10 | Arwa | in W4-10 | [#106](https://github.com/emad-anwer/tem-platform/issues/106) |
-| [BUG-04](BUG-04-dead-worker-context-module.md) | `worker/context.py` — a second, dead way to bind job context | W4-10 | Arwa | in W4-10 | [#107](https://github.com/emad-anwer/tem-platform/issues/107) |
+| [BUG-03](BUG-03-run-scheduled-scan-is-a-stub.md) | `run_scheduled_scan` is a registered stub that logs success | W4-10 | Arwa | in W4-10 | [#102](https://github.com/emad-anwer/tem-platform/issues/102) |
+| [BUG-04](BUG-04-dead-worker-context-module.md) | `worker/context.py` — a second, dead way to bind job context | W4-10 | Arwa | in W4-10 | [#102](https://github.com/emad-anwer/tem-platform/issues/102) |
 | [BUG-05](BUG-05-pipeline-reads-have-no-permission.md) | Four pipeline GET routes have no permission check | itself | **Arwa** | **1h** | [#108](https://github.com/emad-anwer/tem-platform/issues/108) |
 
 **Only BUG-05 is extra work.** The other four are already paid for inside a task you were going to

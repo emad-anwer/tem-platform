@@ -2,7 +2,11 @@
 
 **Severity:** medium (policy gap, not a leak) · **Found:** week-3 review ·
 **Owner:** Arwa · **Reviewer:** Tasneem · **Effort:** 1h · **Depends on:** — ·
-**Do it Thursday**, or whenever a gap opens. Never ahead of W4-04.
+**Do it Thursday**, or whenever a gap opens. Never ahead of W4-10.
+
+**Status:** Resolved. Pipeline reads now declare `target:read`, `scan:read`, and
+`finding:read` in the permission matrix; `viewer` can read within its tenant but
+cannot create targets or start scans.
 
 ## What is wrong
 
