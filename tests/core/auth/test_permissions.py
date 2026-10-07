@@ -139,9 +139,7 @@ def test_pipeline_routes_declare_matrix_permissions():
         ("GET", "/api/v1/targets/{target_id}"): {Permission.TARGET_READ},
         ("POST", "/api/v1/targets/{target_id}/scans"): {Permission.SCAN_START},
         ("GET", "/api/v1/scan_runs/{scan_run_id}"): {Permission.SCAN_READ},
-        ("GET", "/api/v1/scan_runs/{scan_run_id}/changes"): {
-            Permission.FINDING_READ
-        },
+        ("GET", "/api/v1/scan_runs/{scan_run_id}/changes"): {Permission.FINDING_READ},
         ("GET", "/api/v1/findings"): {Permission.FINDING_READ},
     }
 
